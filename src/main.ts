@@ -1,4 +1,8 @@
 import * as THREE from 'three'
+import { createStarfield } from './starfield'
+import { createShip } from './ship'
+
+const SPACE_COLOR = 0x05060a
 
 // --- Renderer -------------------------------------------------------------
 const renderer = new THREE.WebGLRenderer({ antialias: true })
@@ -8,35 +12,34 @@ document.body.appendChild(renderer.domElement)
 
 // --- Scene & camera -------------------------------------------------------
 const scene = new THREE.Scene()
-scene.background = new THREE.Color(0x05060a)
+scene.background = new THREE.Color(SPACE_COLOR)
+// Exponential fog gives depth: near things crisp, distant ones fade into space.
+scene.fog = new THREE.FogExp2(SPACE_COLOR, 0.0018)
 
 const camera = new THREE.PerspectiveCamera(
   60,
   window.innerWidth / window.innerHeight,
   0.1,
-  2000,
+  4000,
 )
-camera.position.set(0, 0, 5)
+// Behind (+Z) and slightly above the ship, looking forward (toward -Z).
+camera.position.set(0, 1.4, 6)
+camera.lookAt(0, 0, -2)
 
 // --- Lights ---------------------------------------------------------------
-scene.add(new THREE.AmbientLight(0x404060, 1.2))
-const keyLight = new THREE.DirectionalLight(0xffffff, 1.6)
-keyLight.position.set(3, 4, 5)
+scene.add(new THREE.AmbientLight(0x404a66, 1.1))
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.0)
+keyLight.position.set(4, 6, 3)
 scene.add(keyLight)
+const rimLight = new THREE.DirectionalLight(0x335577, 1.0)
+rimLight.position.set(-5, -2, -4)
+scene.add(rimLight)
 
-// --- Reference object -----------------------------------------------------
-// A lit, faceted icosphere. Doubles as a render-pipeline smoke test and a
-// preview of the shading style we'll use for asteroids in Phase 4.
-const rock = new THREE.Mesh(
-  new THREE.IcosahedronGeometry(1.4, 3),
-  new THREE.MeshStandardMaterial({
-    color: 0x8a8f9a,
-    flatShading: true,
-    roughness: 0.9,
-    metalness: 0.0,
-  }),
-)
-scene.add(rock)
+// --- Content --------------------------------------------------------------
+scene.add(createStarfield())
+
+const ship = createShip()
+scene.add(ship)
 
 // --- Resize ---------------------------------------------------------------
 window.addEventListener('resize', () => {
@@ -46,11 +49,7 @@ window.addEventListener('resize', () => {
 })
 
 // --- Render loop ----------------------------------------------------------
-const clock = new THREE.Clock()
 function animate() {
-  const dt = clock.getDelta()
-  rock.rotation.x += dt * 0.4
-  rock.rotation.y += dt * 0.6
   renderer.render(scene, camera)
   requestAnimationFrame(animate)
 }
