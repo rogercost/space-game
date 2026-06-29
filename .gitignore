@@ -1,0 +1,80 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+playwright/
+tests/**/snapshots/
+tests/e2e/test-user.json
+test/e2e/test-user.json
+
+# Canonical journey run artifacts (per-run screenshots, logs, manifests)
+test/journeys-runs/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Python virtual environment (for security tools)
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+uv.lock
+
+# Security scanning baselines
+.secrets.baseline
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Generated API spec
+gapi.json
+
+# Local HTTPS dev certificates (mkcert)
+.cert/
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Testing
+src/test/
+
+# OS generated files
+Thumbs.db
+
+# IDE specific
+*.swp
+*.swo
+*~
+.gapi-config.json
