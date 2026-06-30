@@ -16,10 +16,10 @@ export interface FlightConfig {
 }
 
 export const DEFAULT_FLIGHT: FlightConfig = {
-  speed: 60,
-  maxTurnRate: 1.6,
-  turnResponse: 6,
-  driftResponse: 2.5,
+  speed: 50,
+  maxTurnRate: 1.8,
+  turnResponse: 7.5,
+  driftResponse: 2,
   maxBank: 0.6,
   bankResponse: 4,
 }
@@ -88,7 +88,7 @@ export class Flight {
     this.object.position.addScaledVector(this.velocity, dt)
 
     // Bank into the turn (visual only): roll about the nose, proportional to yaw.
-    const targetBank = THREE.MathUtils.clamp(this.yawRate / c.maxTurnRate, -1, 1) * c.maxBank
+    const targetBank = THREE.MathUtils.clamp(-this.yawRate / c.maxTurnRate, -1, 1) * c.maxBank
     this.bank = damp(this.bank, targetBank, c.bankResponse, dt)
     this._roll.setFromAxisAngle(FORWARD, this.bank)
     this.object.quaternion.copy(this.heading).multiply(this._roll)
