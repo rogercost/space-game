@@ -16,7 +16,7 @@ document.body.appendChild(renderer.domElement)
 // --- Scene & camera -------------------------------------------------------
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(SPACE_COLOR)
-scene.fog = new THREE.FogExp2(SPACE_COLOR, 0.0018)
+scene.fog = new THREE.FogExp2(SPACE_COLOR, 0.001)
 
 const camera = new THREE.PerspectiveCamera(
   60,
@@ -49,10 +49,9 @@ const field = new AsteroidField()
 scene.add(field.group)
 field.init(ship.position, flight.forward)
 
-// Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`
-// or `field.setCount(140)`.
-;(window as unknown as { flight: Flight; field: AsteroidField }).flight = flight
-;(window as unknown as { flight: Flight; field: AsteroidField }).field = field
+// Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
+// `field.setCount(200)`, or `scene.fog.density = 0.0008`.
+Object.assign(window, { flight, field, scene })
 
 // Press C to toggle the debug collider spheres.
 window.addEventListener('keydown', (e) => {

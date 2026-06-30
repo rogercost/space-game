@@ -24,19 +24,27 @@ export interface AsteroidFieldConfig {
   despawnFar: number
   /** How strongly spawns are biased toward the flight direction (0 = all around). */
   forwardBias: number
-  /** Asteroid scale range. */
+  /** "Normal" asteroid scale range (the common, smaller rocks). */
   minScale: number
   maxScale: number
+  /** Chance an asteroid is an oversized "giant" instead of a normal rock. */
+  giantChance: number
+  /** Giant asteroid scale range. */
+  giantMinScale: number
+  giantMaxScale: number
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
-  count: 90,
-  spawnNear: 100,
-  spawnFar: 380,
-  despawnFar: 440,
+  count: 150,
+  spawnNear: 200,
+  spawnFar: 760,
+  despawnFar: 820,
   forwardBias: 1.4,
-  minScale: 4,
-  maxScale: 14,
+  minScale: 3.5,
+  maxScale: 15,
+  giantChance: 0.06,
+  giantMinScale: 20,
+  giantMaxScale: 40,
 }
 
 // --- small helpers --------------------------------------------------------
@@ -165,7 +173,7 @@ export class AsteroidField {
   private readonly _shipPos = new THREE.Vector3()
   private readonly _forward = new THREE.Vector3(0, 0, -1)
 
-  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 200) {
+  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 300) {
     this.cfg = { ...cfg }
     this.group.name = 'asteroid-field'
     this.library = Array.from({ length: librarySize }, () => generateShape(2))
@@ -255,7 +263,10 @@ export class AsteroidField {
     a.shape = shape
     a.mesh.geometry = shape.geometry
     a.mesh.material = ROCK_MATERIALS[(Math.random() * ROCK_MATERIALS.length) | 0]
-    a.scale = rand(c.minScale, c.maxScale)
+    a.scale =
+      Math.random() < c.giantChance
+        ? rand(c.giantMinScale, c.giantMaxScale)
+        : rand(c.minScale, c.maxScale)
     a.mesh.scale.setScalar(a.scale)
 
     // Spawn direction: forward-biased; the initial fill is partly all-around so
