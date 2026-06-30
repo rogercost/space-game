@@ -3,6 +3,7 @@ import { createStarfield, updateStarfield } from './starfield'
 import { createShip } from './ship'
 import { createPointer } from './input'
 import { Flight } from './flight'
+import { AsteroidField } from './asteroids'
 
 const SPACE_COLOR = 0x05060a
 
@@ -43,8 +44,22 @@ scene.add(ship)
 
 const pointer = createPointer()
 const flight = new Flight(ship)
-// Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`.
-;(window as unknown as { flight: Flight }).flight = flight
+
+const field = new AsteroidField()
+scene.add(field.group)
+field.init(ship.position, flight.forward)
+
+// Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`
+// or `field.setCount(140)`.
+;(window as unknown as { flight: Flight; field: AsteroidField }).flight = flight
+;(window as unknown as { flight: Flight; field: AsteroidField }).field = field
+
+// Press C to toggle the debug collider spheres.
+window.addEventListener('keydown', (e) => {
+  if (e.key.toLowerCase() === 'c') {
+    console.log('asteroid collider spheres:', field.toggleDebug() ? 'on' : 'off')
+  }
+})
 
 addReticle()
 
@@ -84,6 +99,7 @@ function animate(): void {
   const dt = Math.min(clock.getDelta(), 0.05)
 
   flight.update(dt, pointer.value.x, pointer.value.y)
+  field.update(dt, ship.position, flight.forward)
   updateCamera(dt)
   updateStarfield(starfield, ship.position)
 
