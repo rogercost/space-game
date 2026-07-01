@@ -128,11 +128,40 @@ const _val = new Float32Array(8)
 const _ins = [0, 0, 0, 0]
 const _outs = [0, 0, 0, 0]
 
-/** Multi-frequency value noise in ~[-1, 1] at a point, for craggy detail. */
-function noise3(px: number, py: number, pz: number, ph: THREE.Vector3, fr: THREE.Vector3): number {
-  const a = Math.sin(px * fr.x + ph.x) + Math.sin(py * fr.y + ph.y) + Math.sin(pz * fr.z + ph.z)
-  const b = Math.sin((px + py + pz) * fr.x * 1.7 + ph.y)
-  return (a / 3) * 0.7 + b * 0.3
+/**
+ * Build an isotropic value-noise function for one shape: a sum of sine waves
+ * along RANDOM 3-D directions (not the coordinate axes). Axis-aligned sines
+ * paint visible latitude/longitude "rings" on round rocks; random directions
+ * overlap into organic bumpiness instead. Returns values in ~[-1, 1].
+ */
+function makeNoise(octaves = 5): (x: number, y: number, z: number) => number {
+  const dx: number[] = []
+  const dy: number[] = []
+  const dz: number[] = []
+  const freq: number[] = []
+  const phase: number[] = []
+  const amp: number[] = []
+  let ampSum = 0
+  const dir = new THREE.Vector3()
+  for (let k = 0; k < octaves; k++) {
+    randomUnit(dir)
+    const f = rand(2.5, 6)
+    dx.push(dir.x)
+    dy.push(dir.y)
+    dz.push(dir.z)
+    freq.push(f)
+    phase.push(rand(0, 6.283))
+    const a = 1 / f // taper high frequencies for a natural, fractal-ish surface
+    amp.push(a)
+    ampSum += a
+  }
+  return (x, y, z) => {
+    let s = 0
+    for (let k = 0; k < octaves; k++) {
+      s += amp[k] * Math.sin((dx[k] * x + dy[k] * y + dz[k] * z) * freq[k] + phase[k])
+    }
+    return s / ampSum
+  }
 }
 
 /** Iso=0 crossing point between corners a and b, as [x, y, z]. */
@@ -259,13 +288,12 @@ export function generateShape(res = 22): AsteroidShape {
     spheres.push({ center: dir.multiplyScalar(dist), radius: ri })
   }
 
-  const ph = new THREE.Vector3(rand(0, 6.283), rand(0, 6.283), rand(0, 6.283))
-  const fr = new THREE.Vector3(rand(3, 6), rand(3, 6), rand(3, 6))
   const amp = rand(0.06, 0.12)
+  const noiseAt = makeNoise()
 
   // Field whose iso-0 surface is the rock: smooth-union SDF minus surface noise.
   const field = (px: number, py: number, pz: number): number =>
-    unionSdf(px, py, pz, spheres, BLEND) - amp * noise3(px, py, pz, ph, fr)
+    unionSdf(px, py, pz, spheres, BLEND) - amp * noiseAt(px, py, pz)
 
   // A box that comfortably encloses the surface so the mesh stays closed.
   let extent = 0
