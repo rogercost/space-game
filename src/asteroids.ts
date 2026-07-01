@@ -32,6 +32,10 @@ export interface AsteroidFieldConfig {
   /** Giant asteroid scale range. */
   giantMinScale: number
   giantMaxScale: number
+  /** Max tumble spin rate (rad/sec); each rock gets a random rate up to this. */
+  maxSpin: number
+  /** Max lateral drift speed (units/sec); each rock gets a random speed up to this. */
+  maxDrift: number
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
@@ -45,6 +49,8 @@ export const DEFAULT_FIELD: AsteroidFieldConfig = {
   giantChance: 0.06,
   giantMinScale: 20,
   giantMaxScale: 40,
+  maxSpin: 1.6,
+  maxDrift: 6,
 }
 
 // --- small helpers --------------------------------------------------------
@@ -317,8 +323,8 @@ export class AsteroidField {
     randomUnit(this._tmp)
     a.mesh.quaternion.setFromAxisAngle(this._tmp, Math.random() * Math.PI * 2)
     randomUnit(a.spinAxis)
-    a.spinRate = rand(-0.8, 0.8)
-    randomUnit(a.drift).multiplyScalar(rand(0, 3))
+    a.spinRate = rand(-c.maxSpin, c.maxSpin)
+    randomUnit(a.drift).multiplyScalar(rand(0, c.maxDrift))
 
     a.mesh.visible = true
     this.configureDebug(a)

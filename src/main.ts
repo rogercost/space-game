@@ -53,14 +53,20 @@ field.init(ship.position, flight.forward)
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
 Object.assign(window, { flight, field, scene })
 
-// Press C to toggle the debug collider spheres.
+addReticle()
+const pauseOverlay = addPauseOverlay()
+let paused = false
+
+// Space: pause/resume. C: toggle the debug collider spheres.
 window.addEventListener('keydown', (e) => {
-  if (e.key.toLowerCase() === 'c') {
+  if (e.code === 'Space') {
+    e.preventDefault()
+    paused = !paused
+    pauseOverlay.style.display = paused ? 'flex' : 'none'
+  } else if (e.key.toLowerCase() === 'c') {
     console.log('asteroid collider spheres:', field.toggleDebug() ? 'on' : 'off')
   }
 })
-
-addReticle()
 
 // --- Chase camera ---------------------------------------------------------
 const CAM_OFFSET = new THREE.Vector3(0, 1.6, 7) // local: behind (+Z) and above
@@ -95,12 +101,16 @@ window.addEventListener('resize', () => {
 // --- Render loop ----------------------------------------------------------
 const clock = new THREE.Clock()
 function animate(): void {
+  // Always advance the clock (keeps dt per-frame and clamped) but skip world
+  // updates while paused, so we can freeze the frame and still render it.
   const dt = Math.min(clock.getDelta(), 0.05)
 
-  flight.update(dt, pointer.value.x, pointer.value.y)
-  field.update(dt, ship.position, flight.forward)
-  updateCamera(dt)
-  updateStarfield(starfield, ship.position)
+  if (!paused) {
+    flight.update(dt, pointer.value.x, pointer.value.y)
+    field.update(dt, ship.position, flight.forward)
+    updateCamera(dt)
+    updateStarfield(starfield, ship.position)
+  }
 
   renderer.render(scene, camera)
   requestAnimationFrame(animate)
@@ -124,4 +134,26 @@ function addReticle(): void {
     'z-index:10',
   ].join(';')
   document.body.appendChild(dot)
+}
+
+// --- Pause overlay --------------------------------------------------------
+function addPauseOverlay(): HTMLDivElement {
+  const el = document.createElement('div')
+  el.textContent = 'PAUSED'
+  el.style.cssText = [
+    'position:fixed',
+    'inset:0',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'font:600 42px/1 system-ui,sans-serif',
+    'letter-spacing:0.3em',
+    'color:rgba(255,255,255,0.85)',
+    'text-shadow:0 2px 12px rgba(0,0,0,0.6)',
+    'background:rgba(5,6,10,0.35)',
+    'pointer-events:none',
+    'z-index:20',
+  ].join(';')
+  document.body.appendChild(el)
+  return el
 }
