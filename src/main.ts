@@ -16,7 +16,7 @@ document.body.appendChild(renderer.domElement)
 // --- Scene & camera -------------------------------------------------------
 const scene = new THREE.Scene()
 scene.background = new THREE.Color(SPACE_COLOR)
-scene.fog = new THREE.FogExp2(SPACE_COLOR, 0.001)
+scene.fog = new THREE.FogExp2(SPACE_COLOR, 0.0018)
 
 const camera = new THREE.PerspectiveCamera(
   60,

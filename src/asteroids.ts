@@ -35,10 +35,10 @@ export interface AsteroidFieldConfig {
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
-  count: 150,
-  spawnNear: 200,
-  spawnFar: 760,
-  despawnFar: 820,
+  count: 200,
+  spawnNear: 500,
+  spawnFar: 1100,
+  despawnFar: 1200,
   forwardBias: 1.4,
   minScale: 3.5,
   maxScale: 15,
@@ -60,22 +60,57 @@ function randomUnit(out: THREE.Vector3): THREE.Vector3 {
   return out.set(s * Math.cos(t), s * Math.sin(t), u)
 }
 
-/**
- * Radial distance from the local origin to the surface of the UNION of spheres,
- * in direction `d` (unit). For each sphere, the far ray-sphere intersection; the
- * union surface is the furthest of them. This is what makes the mesh follow the
- * spheres (peanut, clover, etc.) exactly.
- */
-function unionDistance(d: THREE.Vector3, spheres: SphereDef[]): number {
-  let best = 0
-  for (const s of spheres) {
-    const dc = d.dot(s.center)
-    const disc = dc * dc - s.center.lengthSq() + s.radius * s.radius
-    if (disc < 0) continue // ray misses this sphere
-    const tFar = dc + Math.sqrt(disc)
-    if (tFar > best) best = tFar
+/** Blend radius for the smooth union (in unit-scale space). */
+const BLEND = 0.3
+
+/** Polynomial smooth-min (iq): blends two distances with a rounded seam. */
+function smin(a: number, b: number, k: number): number {
+  const h = Math.max(0, Math.min(1, 0.5 + (0.5 * (b - a)) / k))
+  return b * (1 - h) + a * h - k * h * (1 - h)
+}
+
+/** Smooth-union signed distance from point (px,py,pz) to the sphere set. */
+function unionSdf(px: number, py: number, pz: number, spheres: SphereDef[], k: number): number {
+  let d = 0
+  for (let i = 0; i < spheres.length; i++) {
+    const c = spheres[i].center
+    const dx = px - c.x
+    const dy = py - c.y
+    const dz = pz - c.z
+    const di = Math.sqrt(dx * dx + dy * dy + dz * dz) - spheres[i].radius
+    d = i === 0 ? di : smin(d, di, k)
   }
-  return best
+  return d
+}
+
+/**
+ * Radial distance from the origin to the smooth-union surface along unit
+ * direction (dx,dy,dz), by sphere-tracing outward from inside. Smooth-union
+ * avoids the tangent-cone clipping a hard radial union produces, so offset lobes
+ * (peanuts/clovers) render as smooth blends instead of clipped chunks.
+ */
+function surfaceRadius(
+  dx: number,
+  dy: number,
+  dz: number,
+  spheres: SphereDef[],
+  k: number,
+): number {
+  let t0 = 0
+  let s0 = unionSdf(0, 0, 0, spheres, k) // origin is inside the union => negative
+  let t = 0
+  let s = s0
+  for (let i = 0; i < 64; i++) {
+    t0 = t
+    s0 = s
+    t += Math.max(-s, 0.015)
+    s = unionSdf(dx * t, dy * t, dz * t, spheres, k)
+    if (s >= 0) {
+      const denom = s - s0
+      return denom !== 0 ? t0 + ((t - t0) * -s0) / denom : t
+    }
+  }
+  return t
 }
 
 /** Cheap multi-frequency noise in [-1, 1] for craggy surface detail. */
@@ -97,7 +132,7 @@ const _d = new THREE.Vector3()
  * Generate one asteroid shape at unit base scale. The 1–3 spheres are the source
  * of truth; the mesh is derived from their union surface plus surface noise.
  */
-export function generateShape(detail = 2): AsteroidShape {
+export function generateShape(detail = 3): AsteroidShape {
   const n = pickSphereCount()
   const spheres: SphereDef[] = []
 
@@ -119,7 +154,7 @@ export function generateShape(detail = 2): AsteroidShape {
   let maxR = 0
   for (let i = 0; i < pos.count; i++) {
     _d.fromBufferAttribute(pos, i).normalize()
-    let R = unionDistance(_d, spheres)
+    let R = surfaceRadius(_d.x, _d.y, _d.z, spheres, BLEND)
     R *= 1 + amp * craggy(_d, ph, fr)
     pos.setXYZ(i, _d.x * R, _d.y * R, _d.z * R)
     if (R > maxR) maxR = R
@@ -173,10 +208,10 @@ export class AsteroidField {
   private readonly _shipPos = new THREE.Vector3()
   private readonly _forward = new THREE.Vector3(0, 0, -1)
 
-  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 300) {
+  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 400) {
     this.cfg = { ...cfg }
     this.group.name = 'asteroid-field'
-    this.library = Array.from({ length: librarySize }, () => generateShape(2))
+    this.library = Array.from({ length: librarySize }, () => generateShape())
     for (let i = 0; i < maxPool; i++) this.pool.push(this.createAsteroid())
   }
 
