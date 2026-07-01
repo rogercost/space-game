@@ -89,42 +89,151 @@ function unionSdf(px: number, py: number, pz: number, spheres: SphereDef[], k: n
   return d
 }
 
-/**
- * Radial distance from the origin to the smooth-union surface along unit
- * direction (dx,dy,dz), by sphere-tracing outward from inside. Smooth-union
- * avoids the tangent-cone clipping a hard radial union produces, so offset lobes
- * (peanuts/clovers) render as smooth blends instead of clipped chunks.
- */
-function surfaceRadius(
-  dx: number,
-  dy: number,
-  dz: number,
-  spheres: SphereDef[],
-  k: number,
-): number {
-  let t0 = 0
-  let s0 = unionSdf(0, 0, 0, spheres, k) // origin is inside the union => negative
-  let t = 0
-  let s = s0
-  for (let i = 0; i < 64; i++) {
-    t0 = t
-    s0 = s
-    t += Math.max(-s, 0.015)
-    s = unionSdf(dx * t, dy * t, dz * t, spheres, k)
-    if (s >= 0) {
-      const denom = s - s0
-      return denom !== 0 ? t0 + ((t - t0) * -s0) / denom : t
-    }
-  }
-  return t
+// --- surface meshing (marching tetrahedra over the smooth-union field) -----
+//
+// A single-origin radial reconstruction can't represent an offset lobe: from the
+// center that lobe only subtends a narrow cone, so it collapses into a
+// "mushroom" (a cap on a near-cylindrical stem). Instead we extract the
+// isosurface of the smooth-union SDF directly. Marching tetrahedra needs no
+// 256-entry table; each cube is split into 5 tets, alternating the split per
+// cube (by (x+y+z) parity) so neighbouring cubes share face diagonals and the
+// mesh stays watertight.
+
+// Cube corner c has offsets (c&1, (c>>1)&1, (c>>2)&1).
+const CORNER_DX = [0, 1, 0, 1, 0, 1, 0, 1]
+const CORNER_DY = [0, 0, 1, 1, 0, 0, 1, 1]
+const CORNER_DZ = [0, 0, 0, 0, 1, 1, 1, 1]
+
+// Two complementary 5-tetrahedra splits of a cube (each tet = 4 corner ids).
+const TETS_A: number[][] = [
+  [0, 3, 5, 6],
+  [1, 0, 3, 5],
+  [2, 0, 3, 6],
+  [4, 0, 5, 6],
+  [7, 3, 5, 6],
+]
+const TETS_B: number[][] = [
+  [1, 2, 4, 7],
+  [0, 1, 2, 4],
+  [3, 1, 2, 7],
+  [5, 1, 4, 7],
+  [6, 2, 4, 7],
+]
+
+// Scratch buffers reused across every cube (meshing runs at startup only).
+const _px = new Float32Array(8)
+const _py = new Float32Array(8)
+const _pz = new Float32Array(8)
+const _val = new Float32Array(8)
+const _ins = [0, 0, 0, 0]
+const _outs = [0, 0, 0, 0]
+
+/** Multi-frequency value noise in ~[-1, 1] at a point, for craggy detail. */
+function noise3(px: number, py: number, pz: number, ph: THREE.Vector3, fr: THREE.Vector3): number {
+  const a = Math.sin(px * fr.x + ph.x) + Math.sin(py * fr.y + ph.y) + Math.sin(pz * fr.z + ph.z)
+  const b = Math.sin((px + py + pz) * fr.x * 1.7 + ph.y)
+  return (a / 3) * 0.7 + b * 0.3
 }
 
-/** Cheap multi-frequency noise in [-1, 1] for craggy surface detail. */
-function craggy(d: THREE.Vector3, ph: THREE.Vector3, fr: THREE.Vector3): number {
-  const a =
-    Math.sin(d.x * fr.x + ph.x) + Math.sin(d.y * fr.y + ph.y) + Math.sin(d.z * fr.z + ph.z)
-  const b = Math.sin((d.x + d.y + d.z) * fr.x * 1.7 + ph.y)
-  return (a / 3) * 0.7 + b * 0.3
+/** Iso=0 crossing point between corners a and b, as [x, y, z]. */
+function crossing(a: number, b: number): [number, number, number] {
+  const t = _val[a] / (_val[a] - _val[b])
+  return [
+    _px[a] + t * (_px[b] - _px[a]),
+    _py[a] + t * (_py[b] - _py[a]),
+    _pz[a] + t * (_pz[b] - _pz[a]),
+  ]
+}
+
+function pushTri(
+  out: number[],
+  p: [number, number, number],
+  q: [number, number, number],
+  r: [number, number, number],
+): void {
+  out.push(p[0], p[1], p[2], q[0], q[1], q[2], r[0], r[1], r[2])
+}
+
+/** Emit the isosurface triangle(s) for one tetrahedron (winding fixed later). */
+function emitTet(tet: number[], out: number[]): void {
+  let ni = 0
+  let no = 0
+  for (let j = 0; j < 4; j++) {
+    const c = tet[j]
+    if (_val[c] < 0) _ins[ni++] = c
+    else _outs[no++] = c
+  }
+  if (ni === 0 || ni === 4) return
+  if (ni === 1) {
+    pushTri(out, crossing(_ins[0], _outs[0]), crossing(_ins[0], _outs[1]), crossing(_ins[0], _outs[2]))
+  } else if (ni === 3) {
+    pushTri(out, crossing(_outs[0], _ins[0]), crossing(_outs[0], _ins[1]), crossing(_outs[0], _ins[2]))
+  } else {
+    const a = _ins[0]
+    const b = _ins[1]
+    const c = _outs[0]
+    const d = _outs[1]
+    const pac = crossing(a, c)
+    const pad = crossing(a, d)
+    const pbd = crossing(b, d)
+    const pbc = crossing(b, c)
+    pushTri(out, pac, pad, pbd)
+    pushTri(out, pac, pbd, pbc)
+  }
+}
+
+/** Extract the iso=0 surface of a sampled (res+1)^3 field into `out` positions. */
+function marchingTets(
+  grid: Float32Array,
+  res: number,
+  minCoord: number,
+  cell: number,
+  out: number[],
+): void {
+  const N = res + 1
+  for (let z = 0; z < res; z++) {
+    for (let y = 0; y < res; y++) {
+      for (let x = 0; x < res; x++) {
+        for (let c = 0; c < 8; c++) {
+          const gx = x + CORNER_DX[c]
+          const gy = y + CORNER_DY[c]
+          const gz = z + CORNER_DZ[c]
+          _px[c] = minCoord + gx * cell
+          _py[c] = minCoord + gy * cell
+          _pz[c] = minCoord + gz * cell
+          _val[c] = grid[gx + N * (gy + N * gz)]
+        }
+        const tets = ((x + y + z) & 1) === 0 ? TETS_A : TETS_B
+        for (let t = 0; t < 5; t++) emitTet(tets[t], out)
+      }
+    }
+  }
+}
+
+/** Flip triangle winding so every face normal points outward (along +gradient). */
+function orientOutward(
+  positions: Float32Array,
+  fieldFn: (x: number, y: number, z: number) => number,
+  eps: number,
+): void {
+  for (let i = 0; i < positions.length; i += 9) {
+    const ax = positions[i], ay = positions[i + 1], az = positions[i + 2]
+    const bx = positions[i + 3], by = positions[i + 4], bz = positions[i + 5]
+    const cx = positions[i + 6], cy = positions[i + 7], cz = positions[i + 8]
+    const nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay)
+    const ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az)
+    const nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    const mx = (ax + bx + cx) / 3
+    const my = (ay + by + cy) / 3
+    const mz = (az + bz + cz) / 3
+    const g0 = fieldFn(mx + eps, my, mz) - fieldFn(mx - eps, my, mz)
+    const g1 = fieldFn(mx, my + eps, mz) - fieldFn(mx, my - eps, mz)
+    const g2 = fieldFn(mx, my, mz + eps) - fieldFn(mx, my, mz - eps)
+    if (nx * g0 + ny * g1 + nz * g2 < 0) {
+      positions[i + 3] = cx; positions[i + 4] = cy; positions[i + 5] = cz
+      positions[i + 6] = bx; positions[i + 7] = by; positions[i + 8] = bz
+    }
+  }
 }
 
 function pickSphereCount(): number {
@@ -132,13 +241,12 @@ function pickSphereCount(): number {
   return r < 0.4 ? 1 : r < 0.8 ? 2 : 3 // round / peanut / clover
 }
 
-const _d = new THREE.Vector3()
-
 /**
  * Generate one asteroid shape at unit base scale. The 1–3 spheres are the source
- * of truth; the mesh is derived from their union surface plus surface noise.
+ * of truth; the mesh is the iso-0 surface of their smooth union (plus noise),
+ * extracted by marching tetrahedra so offset lobes stay fully rounded.
  */
-export function generateShape(detail = 3): AsteroidShape {
+export function generateShape(res = 22): AsteroidShape {
   const n = pickSphereCount()
   const spheres: SphereDef[] = []
 
@@ -153,22 +261,45 @@ export function generateShape(detail = 3): AsteroidShape {
 
   const ph = new THREE.Vector3(rand(0, 6.283), rand(0, 6.283), rand(0, 6.283))
   const fr = new THREE.Vector3(rand(3, 6), rand(3, 6), rand(3, 6))
-  const amp = rand(0.08, 0.16)
+  const amp = rand(0.06, 0.12)
 
-  const geometry = new THREE.IcosahedronGeometry(1, detail)
-  const pos = geometry.getAttribute('position') as THREE.BufferAttribute
-  let maxR = 0
-  for (let i = 0; i < pos.count; i++) {
-    _d.fromBufferAttribute(pos, i).normalize()
-    let R = surfaceRadius(_d.x, _d.y, _d.z, spheres, BLEND)
-    R *= 1 + amp * craggy(_d, ph, fr)
-    pos.setXYZ(i, _d.x * R, _d.y * R, _d.z * R)
-    if (R > maxR) maxR = R
+  // Field whose iso-0 surface is the rock: smooth-union SDF minus surface noise.
+  const field = (px: number, py: number, pz: number): number =>
+    unionSdf(px, py, pz, spheres, BLEND) - amp * noise3(px, py, pz, ph, fr)
+
+  // A box that comfortably encloses the surface so the mesh stays closed.
+  let extent = 0
+  for (const s of spheres) extent = Math.max(extent, s.center.length() + s.radius)
+  const B = (extent + BLEND + amp) * 1.15
+  const cell = (2 * B) / res
+  const N = res + 1
+
+  // Sample the field on the grid.
+  const grid = new Float32Array(N * N * N)
+  let gi = 0
+  for (let z = 0; z < N; z++) {
+    const pz = -B + z * cell
+    for (let y = 0; y < N; y++) {
+      const py = -B + y * cell
+      for (let x = 0; x < N; x++) grid[gi++] = field(-B + x * cell, py, pz)
+    }
   }
-  pos.needsUpdate = true
+
+  // Extract the surface, orient faces outward, and build the geometry.
+  const tris: number[] = []
+  marchingTets(grid, res, -B, cell, tris)
+  const positions = new Float32Array(tris)
+  orientOutward(positions, field, cell * 0.25)
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
   geometry.computeVertexNormals()
 
-  let boundingRadius = maxR
+  let boundingRadius = 0
+  for (let v = 0; v < positions.length; v += 3) {
+    const r = Math.hypot(positions[v], positions[v + 1], positions[v + 2])
+    if (r > boundingRadius) boundingRadius = r
+  }
   for (const s of spheres) boundingRadius = Math.max(boundingRadius, s.center.length() + s.radius)
   return { geometry, spheres, boundingRadius }
 }
