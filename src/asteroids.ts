@@ -39,7 +39,7 @@ export interface AsteroidFieldConfig {
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
-  count: 160,
+  count: 480,
   spawnNear: 500,
   spawnFar: 1100,
   despawnFar: 1200,
@@ -386,7 +386,7 @@ export class AsteroidField {
   private readonly _sub = new THREE.Vector3()
   private readonly _hit: CollisionHit = { normal: new THREE.Vector3(), penetration: 0 }
 
-  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 400) {
+  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 1100) {
     this.cfg = { ...cfg }
     this.group.name = 'asteroid-field'
     this.library = Array.from({ length: librarySize }, () => generateShape())

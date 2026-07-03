@@ -74,10 +74,10 @@ ship.add(shipCollider)
 // --- Difficulty ramp & score ----------------------------------------------
 const BASE_SPEED = 50
 const MAX_SPEED = 78
-const BASE_COUNT = 160
-const MAX_COUNT = 380
+const BASE_COUNT = 480
+const MAX_COUNT = 1000
 const SPEED_RAMP = 0.14
-const COUNT_RAMP = 2.1
+const COUNT_RAMP = 6.3
 const BEST_KEY = 'starship3d.best'
 let best = loadBest()
 
