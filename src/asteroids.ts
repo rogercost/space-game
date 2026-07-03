@@ -39,7 +39,7 @@ export interface AsteroidFieldConfig {
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
-  count: 200,
+  count: 160,
   spawnNear: 500,
   spawnFar: 1100,
   despawnFar: 1200,

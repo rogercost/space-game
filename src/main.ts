@@ -71,6 +71,24 @@ const shipCollider = new THREE.Mesh(
 shipCollider.visible = false
 ship.add(shipCollider)
 
+// --- Difficulty ramp & score ----------------------------------------------
+const BASE_SPEED = 50
+const MAX_SPEED = 78
+const BASE_COUNT = 160
+const MAX_COUNT = 380
+const SPEED_RAMP = 0.14
+const COUNT_RAMP = 2.1
+const BEST_KEY = 'starship3d.best'
+let best = loadBest()
+
+// Density and speed rise with distance (∝ √score), like the original's curve.
+function updateDifficulty(score: number): void {
+  const s = Math.sqrt(score)
+  flight.cfg.speed = Math.min(MAX_SPEED, BASE_SPEED + s * SPEED_RAMP)
+  const count = Math.min(MAX_COUNT, Math.round(BASE_COUNT + s * COUNT_RAMP))
+  if (count !== field.cfg.count) field.setCount(count)
+}
+
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
 Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight })
@@ -78,6 +96,8 @@ Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, k
 addReticle()
 const pauseOverlay = addPauseOverlay()
 const healthHud = addHealthHud()
+const { scoreEl, bestEl } = addScoreHud()
+bestEl.textContent = `best ${best} m`
 const deathOverlay = addDeathOverlay()
 let paused = false
 
@@ -152,6 +172,8 @@ function animate(): void {
     } else {
       flight.update(dt, pointer.value.x, pointer.value.y)
       if (!game.invulnerable) handleCollision()
+      game.addDistance(flight.velocity.length() * dt)
+      updateDifficulty(game.score)
     }
 
     field.update(dt, ship.position, flight.forward)
@@ -161,6 +183,7 @@ function animate(): void {
     // Flicker the ship while invulnerable; otherwise keep it visible.
     ship.visible = game.invulnerable ? Math.floor(clock.elapsedTime * 20) % 2 === 0 : true
     healthHud.textContent = healthText()
+    scoreEl.textContent = `${Math.floor(game.score)} m`
   }
 
   renderer.render(scene, camera)
@@ -177,12 +200,29 @@ function handleCollision(): void {
   flight.velocity.multiplyScalar(0.55)
   flight.velocity.addScaledVector(hit.normal, KNOCKBACK)
   shake.add(0.85)
-  if (game.hit()) deathOverlay.style.display = 'flex'
+  if (game.hit()) onDeath()
+}
+
+function onDeath(): void {
+  const finalScore = Math.floor(game.score)
+  if (finalScore > best) {
+    best = finalScore
+    saveBest(best)
+    bestEl.textContent = `best ${best} m`
+  }
+  deathOverlay.innerHTML =
+    '<div>YOU DIED</div>' +
+    `<div style="font:600 26px/1 system-ui,sans-serif;letter-spacing:0.08em;margin-top:18px;color:#dfe8ff">${finalScore} m</div>` +
+    `<div style="font:400 16px/1 system-ui,sans-serif;letter-spacing:0.12em;margin-top:6px;opacity:0.7;color:#dfe8ff">best ${best} m</div>` +
+    '<div style="font:400 18px/1 system-ui,sans-serif;letter-spacing:0.2em;margin-top:24px;opacity:0.85">press R to restart</div>'
+  deathOverlay.style.display = 'flex'
 }
 
 function restart(): void {
   game.reset()
   flight.reset()
+  flight.cfg.speed = BASE_SPEED
+  field.cfg.count = BASE_COUNT
   field.init(ship.position, flight.forward)
   shake.reset()
   ship.visible = true
@@ -194,6 +234,22 @@ function restart(): void {
 
 function healthText(): string {
   return '♥'.repeat(game.health) + '♡'.repeat(game.maxHealth - game.health)
+}
+
+function loadBest(): number {
+  try {
+    return Number(localStorage.getItem(BEST_KEY)) || 0
+  } catch {
+    return 0
+  }
+}
+
+function saveBest(value: number): void {
+  try {
+    localStorage.setItem(BEST_KEY, String(value))
+  } catch {
+    // storage unavailable (e.g. private mode) — ignore
+  }
 }
 
 // --- Center reticle (neutral-steering reference) --------------------------
@@ -233,12 +289,25 @@ function addHealthHud(): HTMLDivElement {
   return el
 }
 
+// --- Score HUD ------------------------------------------------------------
+function addScoreHud(): { scoreEl: HTMLDivElement; bestEl: HTMLDivElement } {
+  const wrap = document.createElement('div')
+  wrap.style.cssText =
+    'position:fixed;right:18px;top:12px;text-align:right;pointer-events:none;z-index:15;' +
+    'font-family:system-ui,sans-serif;color:#dfe8ff;text-shadow:0 2px 8px rgba(0,0,0,0.6)'
+  const scoreEl = document.createElement('div')
+  scoreEl.style.cssText = 'font-weight:700;font-size:30px;letter-spacing:1px'
+  scoreEl.textContent = '0 m'
+  const bestEl = document.createElement('div')
+  bestEl.style.cssText = 'font-weight:500;font-size:15px;opacity:0.7;margin-top:2px'
+  wrap.append(scoreEl, bestEl)
+  document.body.appendChild(wrap)
+  return { scoreEl, bestEl }
+}
+
 // --- Death overlay --------------------------------------------------------
 function addDeathOverlay(): HTMLDivElement {
   const el = document.createElement('div')
-  el.innerHTML =
-    '<div>YOU DIED</div>' +
-    '<div style="font:400 20px/1 system-ui,sans-serif;letter-spacing:0.2em;margin-top:16px;opacity:0.85">press R to restart</div>'
   el.style.cssText = [
     'position:fixed',
     'inset:0',
