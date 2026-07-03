@@ -28,11 +28,13 @@ const camera = new THREE.PerspectiveCamera(
 camera.position.set(0, 1.6, 7)
 
 // --- Lights ---------------------------------------------------------------
-scene.add(new THREE.AmbientLight(0x404a66, 1.1))
+const ambient = new THREE.AmbientLight(0x404a66, 1.6)
+scene.add(ambient)
 const keyLight = new THREE.DirectionalLight(0xffffff, 2.0)
 keyLight.position.set(4, 6, 3)
 scene.add(keyLight)
-const rimLight = new THREE.DirectionalLight(0x335577, 1.0)
+// Fill/rim light on the side facing away from the key, so shadow sides read.
+const rimLight = new THREE.DirectionalLight(0x4a6890, 1.6)
 rimLight.position.set(-5, -2, -4)
 scene.add(rimLight)
 
@@ -71,7 +73,7 @@ ship.add(shipCollider)
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight })
 
 addReticle()
 const pauseOverlay = addPauseOverlay()
