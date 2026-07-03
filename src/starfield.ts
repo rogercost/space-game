@@ -52,6 +52,30 @@ export function createStarfield(count = 6000, half = STAR_HALF, inner = 60): THR
     fog: false,
   })
 
+  // Fade stars out as they approach the camera, so we never fly past big, bright
+  // squares. Done on the GPU via per-vertex alpha (true transparency, so faded
+  // stars vanish rather than painting squares over the asteroids behind them).
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uNearStart = { value: 120 } // full brightness beyond this
+    shader.uniforms.uNearEnd = { value: 18 } // fully faded within this
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vCamDist;')
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\n  vCamDist = length(mvPosition.xyz);',
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying float vCamDist;\nuniform float uNearStart;\nuniform float uNearEnd;',
+      )
+      .replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\n  diffuseColor.a *= clamp((vCamDist - uNearEnd) / (uNearStart - uNearEnd), 0.0, 1.0);',
+      )
+    material.userData.shader = shader // for live tuning of uNearStart/uNearEnd
+  }
+
   const stars = new THREE.Points(geometry, material)
   stars.name = 'starfield'
   stars.frustumCulled = false

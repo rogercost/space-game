@@ -71,7 +71,7 @@ ship.add(shipCollider)
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake })
+Object.assign(window, { flight, field, scene, game, shake, starfield })
 
 addReticle()
 const pauseOverlay = addPauseOverlay()
