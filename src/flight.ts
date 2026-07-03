@@ -61,6 +61,24 @@ export class Flight {
     this.heading.copy(object.quaternion)
   }
 
+  /** Reset to a fresh launch at the origin, facing -Z, at rest. */
+  reset(): void {
+    this.object.position.set(0, 0, 0)
+    this.object.quaternion.identity()
+    this.heading.identity()
+    this.velocity.set(0, 0, 0)
+    this.forward.set(0, 0, -1)
+    this.yawRate = 0
+    this.pitchRate = 0
+    this.bank = 0
+  }
+
+  /** Post-death drift: no thrust or steering; velocity slowly bleeds off. */
+  coast(dt: number): void {
+    this.velocity.multiplyScalar(Math.max(0, 1 - 0.4 * dt))
+    this.object.position.addScaledVector(this.velocity, dt)
+  }
+
   update(dt: number, aimX: number, aimY: number): void {
     const c = this.cfg
 

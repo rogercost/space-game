@@ -348,6 +348,17 @@ const DEBUG_MAT = new THREE.MeshBasicMaterial({
 })
 const MAX_DEBUG_SPHERES = 3
 
+/** Colliders sit slightly inside the visual surface so grazes favor the player. */
+const COLLIDER_INSET = 0.9
+
+/** A collision between the ship sphere and an asteroid collider sub-sphere. */
+export interface CollisionHit {
+  /** Unit push-out direction, from the asteroid lump toward the ship. */
+  normal: THREE.Vector3
+  /** Overlap depth in world units. */
+  penetration: number
+}
+
 interface Asteroid {
   mesh: THREE.Mesh
   debug: THREE.Group
@@ -372,6 +383,8 @@ export class AsteroidField {
   private readonly _rel = new THREE.Vector3()
   private readonly _shipPos = new THREE.Vector3()
   private readonly _forward = new THREE.Vector3(0, 0, -1)
+  private readonly _sub = new THREE.Vector3()
+  private readonly _hit: CollisionHit = { normal: new THREE.Vector3(), penetration: 0 }
 
   constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 400) {
     this.cfg = { ...cfg }
@@ -448,7 +461,7 @@ export class AsteroidField {
       if (s) {
         ds.visible = true
         ds.position.copy(s.center)
-        ds.scale.setScalar(s.radius)
+        ds.scale.setScalar(s.radius * COLLIDER_INSET)
       } else {
         ds.visible = false
       }
@@ -505,5 +518,45 @@ export class AsteroidField {
       this._rel.copy(a.mesh.position).sub(shipPos)
       if (this._rel.lengthSq() > despawnSq) this.spawn(a, false)
     }
+  }
+
+  /**
+   * Two-phase collision: broadphase against each asteroid's bounding sphere,
+   * then narrowphase against its 1–3 collider sub-spheres. Returns the deepest
+   * penetrating hit, or null. The returned object is reused between calls.
+   */
+  collide(shipPos: THREE.Vector3, shipRadius: number): CollisionHit | null {
+    let bestPen = 0
+    let found = false
+    for (let i = 0; i < this.cfg.count; i++) {
+      const a = this.pool[i]
+      // Broadphase: ship sphere vs asteroid bounding sphere.
+      this._rel.copy(a.mesh.position).sub(shipPos)
+      const reach = a.shape.boundingRadius * a.scale + shipRadius
+      if (this._rel.lengthSq() > reach * reach) continue
+      // Narrowphase: ship sphere vs each collider sub-sphere.
+      for (const s of a.shape.spheres) {
+        this._sub
+          .copy(s.center)
+          .multiplyScalar(a.scale)
+          .applyQuaternion(a.mesh.quaternion)
+          .add(a.mesh.position)
+        const subR = s.radius * a.scale * COLLIDER_INSET
+        const dx = shipPos.x - this._sub.x
+        const dy = shipPos.y - this._sub.y
+        const dz = shipPos.z - this._sub.z
+        const dist = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        const pen = subR + shipRadius - dist
+        if (pen > 0 && pen > bestPen) {
+          bestPen = pen
+          found = true
+          if (dist > 1e-4) this._hit.normal.set(dx / dist, dy / dist, dz / dist)
+          else this._hit.normal.set(0, 1, 0)
+        }
+      }
+    }
+    if (!found) return null
+    this._hit.penetration = bestPen
+    return this._hit
   }
 }
