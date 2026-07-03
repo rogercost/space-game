@@ -39,16 +39,16 @@ export interface AsteroidFieldConfig {
 }
 
 export const DEFAULT_FIELD: AsteroidFieldConfig = {
-  count: 480,
+  count: 1440,
   spawnNear: 500,
   spawnFar: 1100,
   despawnFar: 1200,
   forwardBias: 1.4,
-  minScale: 3.5,
-  maxScale: 15,
+  minScale: 10.5,
+  maxScale: 45,
   giantChance: 0.06,
-  giantMinScale: 20,
-  giantMaxScale: 40,
+  giantMinScale: 60,
+  giantMaxScale: 120,
   maxSpin: 1.6,
   maxDrift: 6,
 }
@@ -386,7 +386,7 @@ export class AsteroidField {
   private readonly _sub = new THREE.Vector3()
   private readonly _hit: CollisionHit = { normal: new THREE.Vector3(), penetration: 0 }
 
-  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 1100) {
+  constructor(cfg: AsteroidFieldConfig = DEFAULT_FIELD, librarySize = 24, maxPool = 9000) {
     this.cfg = { ...cfg }
     this.group.name = 'asteroid-field'
     this.library = Array.from({ length: librarySize }, () => generateShape())
@@ -399,25 +399,28 @@ export class AsteroidField {
 
     const debug = new THREE.Group()
     debug.visible = false
-    const debugSpheres: THREE.Mesh[] = []
-    for (let i = 0; i < MAX_DEBUG_SPHERES; i++) {
-      const ds = new THREE.Mesh(DEBUG_SPHERE_GEO, DEBUG_MAT)
-      ds.visible = false
-      debug.add(ds)
-      debugSpheres.push(ds)
-    }
     mesh.add(debug)
     this.group.add(mesh)
 
     return {
       mesh,
       debug,
-      debugSpheres,
+      debugSpheres: [], // created lazily the first time debug is enabled
       shape: this.library[0],
       scale: 1,
       spinAxis: new THREE.Vector3(0, 1, 0),
       spinRate: 0,
       drift: new THREE.Vector3(),
+    }
+  }
+
+  private ensureDebugSpheres(a: Asteroid): void {
+    if (a.debugSpheres.length) return
+    for (let i = 0; i < MAX_DEBUG_SPHERES; i++) {
+      const ds = new THREE.Mesh(DEBUG_SPHERE_GEO, DEBUG_MAT)
+      ds.visible = false
+      a.debug.add(ds)
+      a.debugSpheres.push(ds)
     }
   }
 
@@ -433,7 +436,10 @@ export class AsteroidField {
 
   setDebug(on: boolean): void {
     this.debugEnabled = on
-    for (let i = 0; i < this.cfg.count; i++) this.pool[i].debug.visible = on
+    for (let i = 0; i < this.cfg.count; i++) {
+      if (on) this.configureDebug(this.pool[i])
+      else this.pool[i].debug.visible = false
+    }
   }
   toggleDebug(): boolean {
     this.setDebug(!this.debugEnabled)
@@ -455,6 +461,11 @@ export class AsteroidField {
   }
 
   private configureDebug(a: Asteroid): void {
+    if (!this.debugEnabled) {
+      a.debug.visible = false
+      return
+    }
+    this.ensureDebugSpheres(a)
     for (let i = 0; i < MAX_DEBUG_SPHERES; i++) {
       const ds = a.debugSpheres[i]
       const s = a.shape.spheres[i]
@@ -466,7 +477,7 @@ export class AsteroidField {
         ds.visible = false
       }
     }
-    a.debug.visible = this.debugEnabled
+    a.debug.visible = true
   }
 
   private spawn(a: Asteroid, initial: boolean): void {

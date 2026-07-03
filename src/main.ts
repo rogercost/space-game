@@ -74,11 +74,11 @@ ship.add(shipCollider)
 // --- Difficulty ramp & score ----------------------------------------------
 const BASE_SPEED = 50
 const MAX_SPEED = 78
-const BASE_COUNT = 480
-const MAX_COUNT = 1000
+const BASE_COUNT = 1440
+const MAX_COUNT = 9000
 const SPEED_RAMP = 0.14
 const COUNT_RAMP = 6.3
-const BEST_KEY = 'starship3d.best'
+const BEST_KEY = 'starship3d.bestTime' // seconds survived (distinct from the old meters key)
 let best = loadBest()
 
 // Density and speed rise with distance (∝ √score), like the original's curve.
@@ -97,11 +97,14 @@ addReticle()
 const pauseOverlay = addPauseOverlay()
 const healthHud = addHealthHud()
 const { scoreEl, bestEl } = addScoreHud()
-bestEl.textContent = `best ${best} m`
+bestEl.textContent = `best ${formatTime(best)}`
+const statsOverlay = addStatsOverlay()
 const deathOverlay = addDeathOverlay()
 let paused = false
+let statsVisible = false
+let fps = 60
 
-// Space: pause/resume. C: toggle collider debug. R: restart.
+// Space: pause/resume. C: collider debug. M: stats panel. R: restart.
 window.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
     e.preventDefault()
@@ -111,6 +114,9 @@ window.addEventListener('keydown', (e) => {
     const on = field.toggleDebug()
     shipCollider.visible = on
     console.log('collider debug:', on ? 'on' : 'off')
+  } else if (e.key.toLowerCase() === 'm') {
+    statsVisible = !statsVisible
+    statsOverlay.style.display = statsVisible ? 'block' : 'none'
   } else if (e.key.toLowerCase() === 'r') {
     restart()
   }
@@ -172,8 +178,8 @@ function animate(): void {
     } else {
       flight.update(dt, pointer.value.x, pointer.value.y)
       if (!game.invulnerable) handleCollision()
-      game.addDistance(flight.velocity.length() * dt)
-      updateDifficulty(game.score)
+      game.addProgress(dt, flight.velocity.length())
+      updateDifficulty(game.distance)
     }
 
     field.update(dt, ship.position, flight.forward)
@@ -183,7 +189,10 @@ function animate(): void {
     // Flicker the ship while invulnerable; otherwise keep it visible.
     ship.visible = game.invulnerable ? Math.floor(clock.elapsedTime * 20) % 2 === 0 : true
     healthHud.textContent = healthText()
-    scoreEl.textContent = `${Math.floor(game.score)} m`
+    scoreEl.textContent = formatTime(game.time)
+
+    if (dt > 0) fps += (1 / dt - fps) * 0.1
+    if (statsVisible) updateStats()
   }
 
   renderer.render(scene, camera)
@@ -204,18 +213,34 @@ function handleCollision(): void {
 }
 
 function onDeath(): void {
-  const finalScore = Math.floor(game.score)
-  if (finalScore > best) {
-    best = finalScore
+  const finalTime = game.time
+  if (finalTime > best) {
+    best = finalTime
     saveBest(best)
-    bestEl.textContent = `best ${best} m`
+    bestEl.textContent = `best ${formatTime(best)}`
   }
   deathOverlay.innerHTML =
     '<div>YOU DIED</div>' +
-    `<div style="font:600 26px/1 system-ui,sans-serif;letter-spacing:0.08em;margin-top:18px;color:#dfe8ff">${finalScore} m</div>` +
-    `<div style="font:400 16px/1 system-ui,sans-serif;letter-spacing:0.12em;margin-top:6px;opacity:0.7;color:#dfe8ff">best ${best} m</div>` +
+    `<div style="font:600 26px/1 system-ui,sans-serif;letter-spacing:0.08em;margin-top:18px;color:#dfe8ff">${formatTime(finalTime)}</div>` +
+    `<div style="font:400 16px/1 system-ui,sans-serif;letter-spacing:0.12em;margin-top:6px;opacity:0.7;color:#dfe8ff">best ${formatTime(best)}</div>` +
     '<div style="font:400 18px/1 system-ui,sans-serif;letter-spacing:0.2em;margin-top:24px;opacity:0.85">press R to restart</div>'
   deathOverlay.style.display = 'flex'
+}
+
+function formatTime(seconds: number): string {
+  const s = Math.floor(seconds)
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+function updateStats(): void {
+  statsOverlay.innerHTML =
+    `time     ${formatTime(game.time)}<br>` +
+    `best     ${formatTime(best)}<br>` +
+    `health   ${game.health}/${game.maxHealth}<br>` +
+    `speed    ${flight.cfg.speed.toFixed(1)}<br>` +
+    `density  ${field.cfg.count}<br>` +
+    `distance ${Math.floor(game.distance)}<br>` +
+    `fps      ${fps.toFixed(0)}`
 }
 
 function restart(): void {
@@ -303,6 +328,25 @@ function addScoreHud(): { scoreEl: HTMLDivElement; bestEl: HTMLDivElement } {
   wrap.append(scoreEl, bestEl)
   document.body.appendChild(wrap)
   return { scoreEl, bestEl }
+}
+
+// --- Stats overlay (toggled with M) ---------------------------------------
+function addStatsOverlay(): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.cssText = [
+    'position:fixed',
+    'left:18px',
+    'top:56px',
+    'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace',
+    'white-space:pre',
+    'color:rgba(223,232,255,0.85)',
+    'text-shadow:0 1px 4px rgba(0,0,0,0.7)',
+    'display:none',
+    'pointer-events:none',
+    'z-index:15',
+  ].join(';')
+  document.body.appendChild(el)
+  return el
 }
 
 // --- Death overlay --------------------------------------------------------

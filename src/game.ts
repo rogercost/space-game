@@ -3,8 +3,10 @@ export class Game {
   health: number
   readonly maxHealth: number
   dead = false
-  /** Distance travelled while alive; the run's score. */
-  score = 0
+  /** Seconds survived — the score shown to the player. */
+  time = 0
+  /** Distance travelled — drives the difficulty ramp. */
+  distance = 0
   private invuln = 0
 
   constructor(maxHealth = 3) {
@@ -15,13 +17,15 @@ export class Game {
   reset(): void {
     this.health = this.maxHealth
     this.dead = false
-    this.score = 0
+    this.time = 0
+    this.distance = 0
     this.invuln = 0
   }
 
-  /** Add travelled distance to the score (call only while alive). */
-  addDistance(d: number): void {
-    this.score += d
+  /** Advance survived time and travelled distance (call only while alive). */
+  addProgress(dt: number, speed: number): void {
+    this.time += dt
+    this.distance += speed * dt
   }
 
   update(dt: number): void {

@@ -28,6 +28,7 @@ npm run preview  # serve the production build locally
 | **Mouse** | Steer — offset from screen center sets pitch/yaw. Dead-center = fly straight. |
 | **Space** | Pause / resume (freezes the world, keeps rendering — handy for screenshots). |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
+| **M** | Toggle the debug stats panel (time, speed, density, distance, fps). |
 | **R** | Restart the run. |
 
 ---
@@ -104,7 +105,8 @@ read it for the *why* behind the geometry code.
 - Watertight marching-tetrahedra meshing with directional surface noise (no artifacts).
 - Two-phase sphere collision with player-favored colliders and directional knockback.
 - 3 health, brief post-hit invulnerability (with ship flicker), camera shake on impact.
-- Distance score with a persistent best (`localStorage`), and a death screen.
+- Survival-time score (mm:ss) with a persistent best (`localStorage`), a death screen, and
+  an `M`-key debug stats panel (speed, density, fps, …).
 - Difficulty ramp: field density and ship speed rise with distance.
 - Depth fog, a parallax infinite starfield with near-fade, pause, and collider debug view.
 
