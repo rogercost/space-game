@@ -8,8 +8,8 @@ A full-3D reimagining of the Scratch game **"Starship"** by -PinPoint-
 The original is a top-down 2D endless asteroid-dodger where *altitude = score*, steered with
 the mouse using inertial (drifty) movement, with 7 selectable ships and cloud leaderboards.
 We reinterpret it as a **3D mouse-steered forward flyer** (Star Fox / tunnel-runner): you
-always thrust forward, the mouse aims pitch/yaw, the ship banks into turns, and **distance
-traveled is the score**.
+always thrust forward, the mouse aims pitch/yaw, the ship banks into turns, and **survival
+time is the score**.
 
 ## Locked design decisions
 
@@ -17,7 +17,8 @@ traveled is the score**.
 - **Controls:** mouse-steered forward flyer. Constant forward thrust along the ship's nose;
   mouse position (offset from screen center) sets a target pitch/yaw; the ship rotates toward
   it with inertia; visual bank/roll into turns. No stopping or reversing.
-- **Score:** distance traveled forward, displayed in "meters".
+- **Score:** survival time, displayed as `mm:ss`. (Distance travelled is kept as an
+  internal value that drives the difficulty ramp.)
 - **Health:** 3. A collision knocks the ship back, shakes the camera, and grants brief
   invulnerability; 0 health = death.
 - **Ships (later):** the original's 7 ships are tuned by `mouse_speed` / `turning` / `speed` /
@@ -96,7 +97,7 @@ spheres.
 peanut do **not** register (collider matches the shape); 3 hits → death.
 
 ### Phase 6 — Score, HUD, restart, difficulty ramp
-Distance score + health pips (DOM overlay), field density/speed ramp with distance, death screen,
+Survival-time score + health pips (DOM overlay), field density/speed ramp with distance, death screen,
 restart (key/click resets state). Completes the v1 core loop.
 **Test:** full loop — fly, watch the score climb, dodge an increasingly dense field, die, see the
 final score, restart cleanly.

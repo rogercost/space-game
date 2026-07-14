@@ -78,12 +78,12 @@ const BASE_COUNT = 1440
 const MAX_COUNT = 9000
 const SPEED_RAMP = 0.14
 const COUNT_RAMP = 6.3
-const BEST_KEY = 'starship3d.bestTime' // seconds survived (distinct from the old meters key)
+const BEST_KEY = 'starship3d.bestTime' // best survival time, in seconds
 let best = loadBest()
 
-// Density and speed rise with distance (∝ √score), like the original's curve.
-function updateDifficulty(score: number): void {
-  const s = Math.sqrt(score)
+// Density and speed rise with distance travelled (∝ √distance), like the original's curve.
+function updateDifficulty(distance: number): void {
+  const s = Math.sqrt(distance)
   flight.cfg.speed = Math.min(MAX_SPEED, BASE_SPEED + s * SPEED_RAMP)
   const count = Math.min(MAX_COUNT, Math.round(BASE_COUNT + s * COUNT_RAMP))
   if (count !== field.cfg.count) field.setCount(count)
@@ -322,7 +322,7 @@ function addScoreHud(): { scoreEl: HTMLDivElement; bestEl: HTMLDivElement } {
     'font-family:system-ui,sans-serif;color:#dfe8ff;text-shadow:0 2px 8px rgba(0,0,0,0.6)'
   const scoreEl = document.createElement('div')
   scoreEl.style.cssText = 'font-weight:700;font-size:30px;letter-spacing:1px'
-  scoreEl.textContent = '0 m'
+  scoreEl.textContent = '0:00'
   const bestEl = document.createElement('div')
   bestEl.style.cssText = 'font-weight:500;font-size:15px;opacity:0.7;margin-top:2px'
   wrap.append(scoreEl, bestEl)

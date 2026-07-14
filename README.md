@@ -5,8 +5,8 @@ TypeScript — a full-3D reimagining of the Scratch game
 [**Starship**](https://scratch.mit.edu/projects/818748698) by *-PinPoint-*.
 
 You pilot a ship that always thrusts forward through an ever-denser asteroid field.
-Steer with the mouse, dodge the rocks, survive as long as you can. Distance travelled is
-your score.
+Steer with the mouse, dodge the rocks, survive as long as you can. Your survival
+time is the score.
 
 ---
 
