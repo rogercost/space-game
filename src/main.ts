@@ -74,9 +74,9 @@ ship.add(shipCollider)
 // --- Difficulty ramp & score ----------------------------------------------
 const BASE_SPEED = 50
 const MAX_SPEED = 78
-const BASE_COUNT = 1440
+const BASE_COUNT = 360
 const MAX_COUNT = 9000
-const SPEED_RAMP = 0.14
+const SPEED_RAMP = 0.28
 const COUNT_RAMP = 6.3
 const BEST_KEY = 'starship3d.bestTime' // best survival time, in seconds
 let best = loadBest()
@@ -117,6 +117,9 @@ window.addEventListener('keydown', (e) => {
   } else if (e.key.toLowerCase() === 'm') {
     statsVisible = !statsVisible
     statsOverlay.style.display = statsVisible ? 'block' : 'none'
+  } else if (e.key.toLowerCase() === 'b') {
+    const on = field.toggleCollisions()
+    console.log('asteroid collisions:', on ? 'on' : 'off')
   } else if (e.key.toLowerCase() === 'r') {
     restart()
   }
@@ -239,6 +242,7 @@ function updateStats(): void {
     `health   ${game.health}/${game.maxHealth}<br>` +
     `speed    ${flight.cfg.speed.toFixed(1)}<br>` +
     `density  ${field.cfg.count}<br>` +
+    `collide  ${field.activeCount}<br>` +
     `distance ${Math.floor(game.distance)}<br>` +
     `fps      ${fps.toFixed(0)}`
 }

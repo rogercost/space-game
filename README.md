@@ -28,7 +28,8 @@ npm run preview  # serve the production build locally
 | **Mouse** | Steer — offset from screen center sets pitch/yaw. Dead-center = fly straight. |
 | **Space** | Pause / resume (freezes the world, keeps rendering — handy for screenshots). |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
-| **M** | Toggle the debug stats panel (time, speed, density, distance, fps). |
+| **M** | Toggle the debug stats panel (time, speed, density, collisions, fps). |
+| **B** | Toggle asteroid–asteroid collisions. |
 | **R** | Restart the run. |
 
 ---
@@ -47,7 +48,7 @@ one concern, wired together in `main.ts`.
 | `src/flight.ts` | `Flight` — the mouse-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
 | `src/input.ts` | `createPointer()` — normalizes mouse position to `[-1, 1]` from screen center. |
 | `src/ship.ts` | `createShip()` — builds the placeholder low-poly ship from primitives. |
-| `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, two-phase collision, debug spheres). |
+| `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, ship↔rock collision, rock↔rock rigid-body physics, debug spheres). |
 | `src/starfield.ts` | `createStarfield()` / `updateStarfield()` — the infinite wrapping starfield with a GPU near-fade. |
 | `src/game.ts` | `Game` (health, invulnerability, death, score) and `Shake` (trauma-based camera shake). |
 
@@ -66,13 +67,19 @@ read it for the *why* behind the geometry code.
   the visible mesh is the iso-surface of their smooth union, extracted by **marching
   tetrahedra** (`asteroids.ts`). Because the mesh is *derived from* the spheres, the
   colliders always match what you see.
-- **Two-phase collision.** Broadphase against each asteroid's bounding sphere, then
-  narrowphase against its 1–3 collider sub-spheres (inset slightly so grazes favor the
-  player). The knockback pushes the ship away from the exact lump it struck.
+- **Ship–asteroid collision is two-phase.** Broadphase against each asteroid's bounding
+  sphere, then narrowphase against its 1–3 collider sub-spheres (inset slightly so grazes
+  favor the player). The knockback pushes the ship away from the exact lump it struck.
+- **Asteroids also collide with each other,** as rigid bodies within a bubble around the
+  ship: a restitution impulse (the bounce) plus a tangential-friction impulse that transfers
+  spin, with mass ∝ radius³ so big rocks shrug off small ones. Resolving only near the ship
+  keeps it a cheap per-frame O(k²) pass with no spatial index (a uniform grid is the escape
+  hatch if the collision radius or density ever grows enough to matter).
 - **Infinite starfield.** Stars live in a cube that wraps around the ship (so you never run
   out), with a GPU per-vertex alpha fade so close stars dissolve instead of becoming big
   bright squares.
-- **Difficulty ramps ∝ √score**, mirroring the original Scratch game's density curve.
+- **Difficulty ramps ∝ √(distance travelled)**, mirroring the original Scratch game's
+  density curve.
 
 ### Coding conventions
 
@@ -100,10 +107,13 @@ read it for the *why* behind the geometry code.
 ## Current features
 
 - Mouse-steered inertial flight with banking and a smoothed trailing chase camera.
-- Procedural, sphere-derived asteroids (round rocks, peanuts, clovers, and rare giants)
+- Procedural, sphere-derived asteroids (round rocks, peanuts, and clovers)
   with per-rock tumble and drift, streamed in a forward-biased field that recycles as you fly.
 - Watertight marching-tetrahedra meshing with directional surface noise (no artifacts).
-- Two-phase sphere collision with player-favored colliders and directional knockback.
+- Two-phase ship↔asteroid collision with player-favored colliders and directional knockback.
+- Asteroid↔asteroid rigid-body collisions — bounce plus friction-driven spin transfer, mass
+  scaling with size — resolved in a ship-centered bubble, so the field jostles and scatters
+  instead of drifting on rails.
 - 3 health, brief post-hit invulnerability (with ship flicker), camera shake on impact.
 - Survival-time score (mm:ss) with a persistent best (`localStorage`), a death screen, and
   an `M`-key debug stats panel (speed, density, fps, …).
