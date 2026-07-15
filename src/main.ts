@@ -2,8 +2,8 @@ import * as THREE from 'three'
 import { createStarfield, updateStarfield } from './starfield'
 import { createShip } from './ship'
 import { createPointer } from './input'
-import { Flight } from './flight'
-import { AsteroidField } from './asteroids'
+import { Flight, DEFAULT_FLIGHT } from './flight'
+import { AsteroidField, DEFAULT_FIELD } from './asteroids'
 import { Game, Shake } from './game'
 
 const SPACE_COLOR = 0x05060a
@@ -25,7 +25,6 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   4000,
 )
-camera.position.set(0, 1.6, 7)
 
 // --- Lights ---------------------------------------------------------------
 const ambient = new THREE.AmbientLight(0x404a66, 1.6)
@@ -57,7 +56,6 @@ const shake = new Shake()
 
 // Ship collider: a single sphere a bit smaller than the hull (player-favored).
 const SHIP_RADIUS = 0.8
-const KNOCKBACK = 45
 const shipCollider = new THREE.Mesh(
   new THREE.IcosahedronGeometry(SHIP_RADIUS, 2),
   new THREE.MeshBasicMaterial({
@@ -72,9 +70,9 @@ shipCollider.visible = false
 ship.add(shipCollider)
 
 // --- Difficulty ramp & score ----------------------------------------------
-const BASE_SPEED = 50
+const BASE_SPEED = DEFAULT_FLIGHT.speed
 const MAX_SPEED = 78
-const BASE_COUNT = 360
+const BASE_COUNT = DEFAULT_FIELD.count
 const MAX_COUNT = 9000
 const SPEED_RAMP = 0.28
 const COUNT_RAMP = 6.3
@@ -103,6 +101,9 @@ const deathOverlay = addDeathOverlay()
 let paused = false
 let statsVisible = false
 let fps = 60
+// Last values pushed to the HUD, so we only touch the DOM when they change.
+let shownHealth = -1
+let shownSecond = -1
 
 // Space: pause/resume. C: collider debug. M: stats panel. R: restart.
 window.addEventListener('keydown', (e) => {
@@ -132,7 +133,7 @@ const desiredCamPos = new THREE.Vector3()
 const lookTarget = new THREE.Vector3()
 const smoothLook = new THREE.Vector3(0, 0, -12)
 const camUp = new THREE.Vector3()
-const camBase = new THREE.Vector3(0, 1.6, 7) // smoothed follow position (pre-shake)
+const camBase = CAM_OFFSET.clone() // smoothed follow position (pre-shake)
 
 function updateCamera(dt: number): void {
   // Sit behind the ship using heading (not bank, so the horizon doesn't roll).
@@ -191,8 +192,17 @@ function animate(): void {
 
     // Flicker the ship while invulnerable; otherwise keep it visible.
     ship.visible = game.invulnerable ? Math.floor(clock.elapsedTime * 20) % 2 === 0 : true
-    healthHud.textContent = healthText()
-    scoreEl.textContent = formatTime(game.time)
+
+    // HUD text changes rarely (health on hit, score once a second) — only write on change.
+    if (game.health !== shownHealth) {
+      shownHealth = game.health
+      healthHud.textContent = healthText()
+    }
+    const second = Math.floor(game.time)
+    if (second !== shownSecond) {
+      shownSecond = second
+      scoreEl.textContent = formatTime(game.time)
+    }
 
     if (dt > 0) fps += (1 / dt - fps) * 0.1
     if (statsVisible) updateStats()
@@ -207,10 +217,7 @@ animate()
 function handleCollision(): void {
   const hit = field.collide(ship.position, SHIP_RADIUS)
   if (!hit) return
-  // Push out of the overlap and kick the ship away from the lump it struck.
-  ship.position.addScaledVector(hit.normal, hit.penetration)
-  flight.velocity.multiplyScalar(0.55)
-  flight.velocity.addScaledVector(hit.normal, KNOCKBACK)
+  flight.applyKnockback(hit.normal, hit.penetration)
   shake.add(0.85)
   if (game.hit()) onDeath()
 }
@@ -257,7 +264,7 @@ function restart(): void {
   ship.visible = true
   deathOverlay.style.display = 'none'
   // Snap the camera behind the freshly launched ship.
-  camBase.set(0, 1.6, 7)
+  camBase.copy(CAM_OFFSET)
   smoothLook.set(0, 0, -12)
 }
 
@@ -281,10 +288,18 @@ function saveBest(value: number): void {
   }
 }
 
-// --- Center reticle (neutral-steering reference) --------------------------
+// --- DOM overlays ---------------------------------------------------------
+// Build a fixed-position <div> from a list of CSS declarations, append it, return it.
+function overlay(css: string[]): HTMLDivElement {
+  const el = document.createElement('div')
+  el.style.cssText = css.join(';')
+  document.body.appendChild(el)
+  return el
+}
+
+// Center reticle (neutral-steering reference).
 function addReticle(): void {
-  const dot = document.createElement('div')
-  dot.style.cssText = [
+  overlay([
     'position:fixed',
     'left:50%',
     'top:50%',
@@ -296,14 +311,12 @@ function addReticle(): void {
     'box-shadow:0 0 0 1px rgba(0,0,0,0.4) inset',
     'pointer-events:none',
     'z-index:10',
-  ].join(';')
-  document.body.appendChild(dot)
+  ])
 }
 
 // --- Health HUD -----------------------------------------------------------
 function addHealthHud(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = [
+  return overlay([
     'position:fixed',
     'left:18px',
     'top:14px',
@@ -313,9 +326,7 @@ function addHealthHud(): HTMLDivElement {
     'text-shadow:0 2px 8px rgba(0,0,0,0.6)',
     'pointer-events:none',
     'z-index:15',
-  ].join(';')
-  document.body.appendChild(el)
-  return el
+  ])
 }
 
 // --- Score HUD ------------------------------------------------------------
@@ -336,8 +347,7 @@ function addScoreHud(): { scoreEl: HTMLDivElement; bestEl: HTMLDivElement } {
 
 // --- Stats overlay (toggled with M) ---------------------------------------
 function addStatsOverlay(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = [
+  return overlay([
     'position:fixed',
     'left:18px',
     'top:56px',
@@ -348,15 +358,12 @@ function addStatsOverlay(): HTMLDivElement {
     'display:none',
     'pointer-events:none',
     'z-index:15',
-  ].join(';')
-  document.body.appendChild(el)
-  return el
+  ])
 }
 
 // --- Death overlay --------------------------------------------------------
 function addDeathOverlay(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = [
+  return overlay([
     'position:fixed',
     'inset:0',
     'display:none',
@@ -370,16 +377,12 @@ function addDeathOverlay(): HTMLDivElement {
     'background:rgba(10,4,6,0.45)',
     'pointer-events:none',
     'z-index:25',
-  ].join(';')
-  document.body.appendChild(el)
-  return el
+  ])
 }
 
 // --- Pause overlay --------------------------------------------------------
 function addPauseOverlay(): HTMLDivElement {
-  const el = document.createElement('div')
-  el.textContent = 'PAUSED'
-  el.style.cssText = [
+  const el = overlay([
     'position:fixed',
     'inset:0',
     'display:none',
@@ -392,7 +395,7 @@ function addPauseOverlay(): HTMLDivElement {
     'background:rgba(5,6,10,0.35)',
     'pointer-events:none',
     'z-index:20',
-  ].join(';')
-  document.body.appendChild(el)
+  ])
+  el.textContent = 'PAUSED'
   return el
 }

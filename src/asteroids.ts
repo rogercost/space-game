@@ -494,10 +494,8 @@ export class AsteroidField {
 
   setDebug(on: boolean): void {
     this.debugEnabled = on
-    for (let i = 0; i < this.cfg.count; i++) {
-      if (on) this.configureDebug(this.pool[i])
-      else this.pool[i].debug.visible = false
-    }
+    // configureDebug hides the spheres itself when debug is off, so one path covers both.
+    for (let i = 0; i < this.cfg.count; i++) this.configureDebug(this.pool[i])
   }
   toggleDebug(): boolean {
     this.setDebug(!this.debugEnabled)
@@ -518,7 +516,7 @@ export class AsteroidField {
 
   /** Live density control (uses the last ship pos/forward from update/init). */
   setCount(n: number): void {
-    n = Math.max(0, Math.min(n | 0, this.pool.length))
+    n = THREE.MathUtils.clamp(n | 0, 0, this.pool.length)
     if (n > this.cfg.count) {
       for (let i = this.cfg.count; i < n; i++) this.spawn(this.pool[i], false)
     } else {

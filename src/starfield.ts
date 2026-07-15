@@ -97,13 +97,15 @@ export function updateStarfield(
   const span = half * 2
   const { x: cx, y: cy, z: cz } = center
 
+  let moved = false
   for (let i = 0; i < a.length; i += 3) {
-    if (a[i] - cx > half) a[i] -= span
-    else if (a[i] - cx < -half) a[i] += span
-    if (a[i + 1] - cy > half) a[i + 1] -= span
-    else if (a[i + 1] - cy < -half) a[i + 1] += span
-    if (a[i + 2] - cz > half) a[i + 2] -= span
-    else if (a[i + 2] - cz < -half) a[i + 2] += span
+    if (a[i] - cx > half) { a[i] -= span; moved = true }
+    else if (a[i] - cx < -half) { a[i] += span; moved = true }
+    if (a[i + 1] - cy > half) { a[i + 1] -= span; moved = true }
+    else if (a[i + 1] - cy < -half) { a[i + 1] += span; moved = true }
+    if (a[i + 2] - cz > half) { a[i + 2] -= span; moved = true }
+    else if (a[i + 2] - cz < -half) { a[i + 2] += span; moved = true }
   }
-  attr.needsUpdate = true
+  // Only re-upload the (large) position buffer to the GPU if a star actually wrapped.
+  if (moved) attr.needsUpdate = true
 }

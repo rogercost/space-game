@@ -28,6 +28,9 @@ const FORWARD = new THREE.Vector3(0, 0, -1)
 const LOCAL_UP = new THREE.Vector3(0, 1, 0)
 const LOCAL_RIGHT = new THREE.Vector3(1, 0, 0)
 const DEADZONE = 0.04
+/** Collision knockback: keep this fraction of speed, then add an impulse along the hit normal. */
+const KNOCKBACK_DAMP = 0.55
+const KNOCKBACK_IMPULSE = 45
 
 /** Framerate-independent exponential approach of `current` toward `target`. */
 function damp(current: number, target: number, lambda: number, dt: number): number {
@@ -77,6 +80,17 @@ export class Flight {
   coast(dt: number): void {
     this.velocity.multiplyScalar(Math.max(0, 1 - 0.4 * dt))
     this.object.position.addScaledVector(this.velocity, dt)
+  }
+
+  /**
+   * Respond to a collision: shove out of the overlap along the contact normal, then
+   * bleed some speed and kick the velocity away from the lump struck. Keeps all
+   * mutation of the ship's own position/velocity inside Flight, like coast().
+   */
+  applyKnockback(normal: THREE.Vector3, penetration: number): void {
+    this.object.position.addScaledVector(normal, penetration)
+    this.velocity.multiplyScalar(KNOCKBACK_DAMP)
+    this.velocity.addScaledVector(normal, KNOCKBACK_IMPULSE)
   }
 
   update(dt: number, aimX: number, aimY: number): void {
