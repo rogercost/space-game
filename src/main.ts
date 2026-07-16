@@ -5,6 +5,8 @@ import { createPointer } from './input'
 import { Flight, DEFAULT_FLIGHT } from './flight'
 import { AsteroidField, DEFAULT_FIELD } from './asteroids'
 import { Game, Shake } from './game'
+import { Leaderboard } from './leaderboard'
+import { UI } from './ui'
 
 const SPACE_COLOR = 0x05060a
 
@@ -53,6 +55,7 @@ field.init(ship.position, flight.forward)
 
 const game = new Game()
 const shake = new Shake()
+const leaderboard = new Leaderboard()
 
 // Ship collider: a single sphere a bit smaller than the hull (player-favored).
 const SHIP_RADIUS = 0.8
@@ -77,6 +80,7 @@ const MAX_COUNT = 9000
 const SPEED_RAMP = 0.28
 const COUNT_RAMP = 6.3
 const BEST_KEY = 'starship3d.bestTime' // best survival time, in seconds
+const NAME_KEY = 'starship3d.playerName' // last name entered on the death screen
 let best = loadBest()
 
 // Density and speed rise with distance travelled (∝ √distance), like the original's curve.
@@ -87,42 +91,54 @@ function updateDifficulty(distance: number): void {
   if (count !== field.cfg.count) field.setCount(count)
 }
 
+// --- App state machine ----------------------------------------------------
+// menu -> playing <-> paused, and playing -> dead. Boot lands on the menu; the
+// 3D scene keeps rendering behind every screen (see the animate() branches).
+type Screen = 'menu' | 'playing' | 'paused' | 'dead'
+let screen: Screen = 'menu'
+let deathTime = 0
+let fps = 60
+
+const ui = new UI({
+  onLaunch: startRun,
+  onContinue: resume,
+  onRestart: startRun,
+  onMainMenu: goMenu,
+  onPause: pause,
+  onPlayAgain: startRun,
+  onSubmitName: (name) => {
+    savePlayerName(name)
+    return leaderboard.add(name, deathTime)
+  },
+  getLeaderboard: () => leaderboard.entries,
+})
+
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard })
 
-addReticle()
-const pauseOverlay = addPauseOverlay()
-const healthHud = addHealthHud()
-const { scoreEl, bestEl } = addScoreHud()
-bestEl.textContent = `best ${formatTime(best)}`
-const statsOverlay = addStatsOverlay()
-const deathOverlay = addDeathOverlay()
-let paused = false
-let statsVisible = false
-let fps = 60
-// Last values pushed to the HUD, so we only touch the DOM when they change.
-let shownHealth = -1
-let shownSecond = -1
+ui.setBest(best)
+goMenu()
 
-// Space: pause/resume. C: collider debug. M: stats panel. R: restart.
+// Space: pause/resume. C: collider debug. M: stats panel. B: rock collisions.
+// (Restart lives on the pause/death menus now — there's no restart key.)
 window.addEventListener('keydown', (e) => {
+  const t = e.target as HTMLElement | null
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return // don't hijack name entry
+  const k = e.key.toLowerCase()
   if (e.code === 'Space') {
     e.preventDefault()
-    paused = !paused
-    pauseOverlay.style.display = paused ? 'flex' : 'none'
-  } else if (e.key.toLowerCase() === 'c') {
+    if (screen === 'playing') pause()
+    else if (screen === 'paused') resume()
+  } else if (k === 'c') {
     const on = field.toggleDebug()
     shipCollider.visible = on
     console.log('collider debug:', on ? 'on' : 'off')
-  } else if (e.key.toLowerCase() === 'm') {
-    statsVisible = !statsVisible
-    statsOverlay.style.display = statsVisible ? 'block' : 'none'
-  } else if (e.key.toLowerCase() === 'b') {
+  } else if (k === 'm') {
+    console.log('stats:', ui.toggleStats() ? 'on' : 'off')
+  } else if (k === 'b') {
     const on = field.toggleCollisions()
     console.log('asteroid collisions:', on ? 'on' : 'off')
-  } else if (e.key.toLowerCase() === 'r') {
-    restart()
   }
 })
 
@@ -169,23 +185,19 @@ window.addEventListener('resize', () => {
 // --- Render loop ----------------------------------------------------------
 const clock = new THREE.Clock()
 function animate(): void {
-  // Always advance the clock (keeps dt per-frame and clamped) but skip world
-  // updates while paused, so we can freeze the frame and still render it.
+  // Always advance the clock (keeps dt per-frame and clamped); what we update
+  // depends on the current screen. The scene renders every frame regardless.
   const dt = Math.min(clock.getDelta(), 0.05)
 
-  if (!paused) {
+  if (screen === 'playing') {
     game.update(dt)
     shake.update(dt)
-
-    if (game.dead) {
-      flight.coast(dt)
-    } else {
-      flight.update(dt, pointer.value.x, pointer.value.y)
-      if (!game.invulnerable) handleCollision()
+    flight.update(dt, pointer.value.x, pointer.value.y)
+    if (!game.invulnerable) handleCollision() // may transition us to 'dead'
+    if (screen === 'playing') {
       game.addProgress(dt, flight.velocity.length())
       updateDifficulty(game.distance)
     }
-
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
@@ -193,20 +205,34 @@ function animate(): void {
     // Flicker the ship while invulnerable; otherwise keep it visible.
     ship.visible = game.invulnerable ? Math.floor(clock.elapsedTime * 20) % 2 === 0 : true
 
-    // HUD text changes rarely (health on hit, score once a second) — only write on change.
-    if (game.health !== shownHealth) {
-      shownHealth = game.health
-      healthHud.textContent = healthText()
-    }
-    const second = Math.floor(game.time)
-    if (second !== shownSecond) {
-      shownSecond = second
-      scoreEl.textContent = formatTime(game.time)
-    }
-
+    ui.setHealth(game.health, game.maxHealth)
+    ui.setScore(game.time)
     if (dt > 0) fps += (1 / dt - fps) * 0.1
-    if (statsVisible) updateStats()
+    ui.setStats({
+      time: game.time,
+      best,
+      health: game.health,
+      maxHealth: game.maxHealth,
+      speed: flight.cfg.speed,
+      count: field.cfg.count,
+      active: field.activeCount,
+      distance: game.distance,
+      fps,
+    })
+  } else if (screen === 'dead') {
+    // Keep the death scene alive: the ship coasts and the field drifts behind the overlay.
+    shake.update(dt)
+    flight.coast(dt)
+    field.update(dt, ship.position, flight.forward)
+    updateCamera(dt)
+    updateStarfield(starfield, ship.position)
+  } else if (screen === 'menu') {
+    // Attract-mode backdrop: the field drifts past the idle ship.
+    field.update(dt, ship.position, flight.forward)
+    updateCamera(dt)
+    updateStarfield(starfield, ship.position)
   }
+  // 'paused' freezes the world; we just re-render the last frame under the menu.
 
   renderer.render(scene, camera)
   requestAnimationFrame(animate)
@@ -219,42 +245,15 @@ function handleCollision(): void {
   if (!hit) return
   flight.applyKnockback(hit.normal, hit.penetration)
   shake.add(0.85)
-  if (game.hit()) onDeath()
+  if (game.hit()) goDeath()
 }
 
-function onDeath(): void {
-  const finalTime = game.time
-  if (finalTime > best) {
-    best = finalTime
-    saveBest(best)
-    bestEl.textContent = `best ${formatTime(best)}`
-  }
-  deathOverlay.innerHTML =
-    '<div>YOU DIED</div>' +
-    `<div style="font:600 26px/1 system-ui,sans-serif;letter-spacing:0.08em;margin-top:18px;color:#dfe8ff">${formatTime(finalTime)}</div>` +
-    `<div style="font:400 16px/1 system-ui,sans-serif;letter-spacing:0.12em;margin-top:6px;opacity:0.7;color:#dfe8ff">best ${formatTime(best)}</div>` +
-    '<div style="font:400 18px/1 system-ui,sans-serif;letter-spacing:0.2em;margin-top:24px;opacity:0.85">press R to restart</div>'
-  deathOverlay.style.display = 'flex'
+function goMenu(): void {
+  screen = 'menu'
+  ui.showMenu()
 }
 
-function formatTime(seconds: number): string {
-  const s = Math.floor(seconds)
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
-}
-
-function updateStats(): void {
-  statsOverlay.innerHTML =
-    `time     ${formatTime(game.time)}<br>` +
-    `best     ${formatTime(best)}<br>` +
-    `health   ${game.health}/${game.maxHealth}<br>` +
-    `speed    ${flight.cfg.speed.toFixed(1)}<br>` +
-    `density  ${field.cfg.count}<br>` +
-    `collide  ${field.activeCount}<br>` +
-    `distance ${Math.floor(game.distance)}<br>` +
-    `fps      ${fps.toFixed(0)}`
-}
-
-function restart(): void {
+function startRun(): void {
   game.reset()
   flight.reset()
   flight.cfg.speed = BASE_SPEED
@@ -262,16 +261,38 @@ function restart(): void {
   field.init(ship.position, flight.forward)
   shake.reset()
   ship.visible = true
-  deathOverlay.style.display = 'none'
   // Snap the camera behind the freshly launched ship.
   camBase.copy(CAM_OFFSET)
   smoothLook.set(0, 0, -12)
+  screen = 'playing'
+  ui.showPlaying()
 }
 
-function healthText(): string {
-  return '♥'.repeat(game.health) + '♡'.repeat(game.maxHealth - game.health)
+function pause(): void {
+  if (screen !== 'playing') return
+  screen = 'paused'
+  ui.showPaused()
 }
 
+function resume(): void {
+  if (screen !== 'paused') return
+  screen = 'playing'
+  ui.showPlaying()
+}
+
+function goDeath(): void {
+  deathTime = game.time
+  if (deathTime > best) {
+    best = deathTime
+    saveBest(best)
+    ui.setBest(best)
+  }
+  ship.visible = true // stop any invuln flicker for the death scene
+  screen = 'dead'
+  ui.showDeath(deathTime, best, loadPlayerName())
+}
+
+// --- Persistence ----------------------------------------------------------
 function loadBest(): number {
   try {
     return Number(localStorage.getItem(BEST_KEY)) || 0
@@ -288,114 +309,18 @@ function saveBest(value: number): void {
   }
 }
 
-// --- DOM overlays ---------------------------------------------------------
-// Build a fixed-position <div> from a list of CSS declarations, append it, return it.
-function overlay(css: string[]): HTMLDivElement {
-  const el = document.createElement('div')
-  el.style.cssText = css.join(';')
-  document.body.appendChild(el)
-  return el
+function loadPlayerName(): string {
+  try {
+    return localStorage.getItem(NAME_KEY) || ''
+  } catch {
+    return ''
+  }
 }
 
-// Center reticle (neutral-steering reference).
-function addReticle(): void {
-  overlay([
-    'position:fixed',
-    'left:50%',
-    'top:50%',
-    'width:16px',
-    'height:16px',
-    'margin:-8px 0 0 -8px',
-    'border:2px solid rgba(255,255,255,0.25)',
-    'border-radius:50%',
-    'box-shadow:0 0 0 1px rgba(0,0,0,0.4) inset',
-    'pointer-events:none',
-    'z-index:10',
-  ])
-}
-
-// --- Health HUD -----------------------------------------------------------
-function addHealthHud(): HTMLDivElement {
-  return overlay([
-    'position:fixed',
-    'left:18px',
-    'top:14px',
-    'font:600 28px/1 system-ui,sans-serif',
-    'color:#ff5566',
-    'letter-spacing:6px',
-    'text-shadow:0 2px 8px rgba(0,0,0,0.6)',
-    'pointer-events:none',
-    'z-index:15',
-  ])
-}
-
-// --- Score HUD ------------------------------------------------------------
-function addScoreHud(): { scoreEl: HTMLDivElement; bestEl: HTMLDivElement } {
-  const wrap = document.createElement('div')
-  wrap.style.cssText =
-    'position:fixed;right:18px;top:12px;text-align:right;pointer-events:none;z-index:15;' +
-    'font-family:system-ui,sans-serif;color:#dfe8ff;text-shadow:0 2px 8px rgba(0,0,0,0.6)'
-  const scoreEl = document.createElement('div')
-  scoreEl.style.cssText = 'font-weight:700;font-size:30px;letter-spacing:1px'
-  scoreEl.textContent = '0:00'
-  const bestEl = document.createElement('div')
-  bestEl.style.cssText = 'font-weight:500;font-size:15px;opacity:0.7;margin-top:2px'
-  wrap.append(scoreEl, bestEl)
-  document.body.appendChild(wrap)
-  return { scoreEl, bestEl }
-}
-
-// --- Stats overlay (toggled with M) ---------------------------------------
-function addStatsOverlay(): HTMLDivElement {
-  return overlay([
-    'position:fixed',
-    'left:18px',
-    'top:56px',
-    'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace',
-    'white-space:pre',
-    'color:rgba(223,232,255,0.85)',
-    'text-shadow:0 1px 4px rgba(0,0,0,0.7)',
-    'display:none',
-    'pointer-events:none',
-    'z-index:15',
-  ])
-}
-
-// --- Death overlay --------------------------------------------------------
-function addDeathOverlay(): HTMLDivElement {
-  return overlay([
-    'position:fixed',
-    'inset:0',
-    'display:none',
-    'flex-direction:column',
-    'align-items:center',
-    'justify-content:center',
-    'font:700 56px/1 system-ui,sans-serif',
-    'letter-spacing:0.15em',
-    'color:#ff4455',
-    'text-shadow:0 3px 16px rgba(0,0,0,0.7)',
-    'background:rgba(10,4,6,0.45)',
-    'pointer-events:none',
-    'z-index:25',
-  ])
-}
-
-// --- Pause overlay --------------------------------------------------------
-function addPauseOverlay(): HTMLDivElement {
-  const el = overlay([
-    'position:fixed',
-    'inset:0',
-    'display:none',
-    'align-items:center',
-    'justify-content:center',
-    'font:600 42px/1 system-ui,sans-serif',
-    'letter-spacing:0.3em',
-    'color:rgba(255,255,255,0.85)',
-    'text-shadow:0 2px 12px rgba(0,0,0,0.6)',
-    'background:rgba(5,6,10,0.35)',
-    'pointer-events:none',
-    'z-index:20',
-  ])
-  el.textContent = 'PAUSED'
-  return el
+function savePlayerName(name: string): void {
+  try {
+    localStorage.setItem(NAME_KEY, name)
+  } catch {
+    // storage unavailable — ignore
+  }
 }

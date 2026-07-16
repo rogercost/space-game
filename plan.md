@@ -106,6 +106,20 @@ final score, restart cleanly.
 Motion trail behind the ship, impact particle bursts, speed-based FOV kick, optional sound.
 Layered on only once the core loop feels good.
 
+### Phase 8 — App shell: main menu, pause UI, leaderboard (post-v1)
+The game boots to a **main menu** (Launch / Settings / Leaderboard) via an explicit app state
+machine (`menu` → `playing` ⇆ `paused`, `playing` → `dead`); the 3D scene renders behind every
+screen (the field drifts as an attract-mode backdrop on the menu). A **pause menu** (Continue /
+Restart / Main Menu) plus an on-screen ⏸ button make it playable with a mouse or a touchscreen —
+Space still pauses, and the restart *key* is gone (restart lives on the pause/death menus). On
+death the player enters a name and is recorded on an in-memory `Leaderboard` (top 10, seeded).
+All DOM moves into a `UI` class (`ui.ts`) that `main.ts` drives via `showX()` calls + per-frame
+setters and wires through a `UIHandlers` callbacks object; `Leaderboard` (`leaderboard.ts`) keeps
+`add()` / `entries` as its only surface so durable storage can slot in behind them later.
+Settings is a placeholder for now (sound sliders arrive with the audio work).
+**Test:** boot → menu; Launch → fly; ⏸ or Space → pause menu → Continue / Restart / Main Menu;
+die → name entry → see rank; the Leaderboard view lists the new score.
+
 ## Tooling notes
 
 - `npm run dev` — dev server with hot reload.

@@ -26,11 +26,13 @@ npm run preview  # serve the production build locally
 | Input | Action |
 | --- | --- |
 | **Mouse** | Steer — offset from screen center sets pitch/yaw. Dead-center = fly straight. |
-| **Space** | Pause / resume (freezes the world, keeps rendering — handy for screenshots). |
+| **Space** or **⏸** | Pause / resume. The on-screen ⏸ button (top center) lets you pause with only a mouse or a touchscreen. |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
 | **M** | Toggle the debug stats panel (time, speed, density, collisions, fps). |
 | **B** | Toggle asteroid–asteroid collisions. |
-| **R** | Restart the run. |
+
+The game boots to a **main menu** (Launch / Settings / Leaderboard). Restart lives on the
+**pause menu** (Space → Restart) and the death screen — there is no restart key.
 
 ---
 
@@ -44,13 +46,15 @@ one concern, wired together in `main.ts`.
 
 | File | Responsibility |
 | --- | --- |
-| `src/main.ts` | Orchestrator: renderer, scene, camera, lights, the game loop, HUD/overlays, input wiring, collision handling, the difficulty ramp, and restart. |
+| `src/main.ts` | Orchestrator: renderer, scene, camera, lights, the game loop, the app state machine (`menu`/`playing`/`paused`/`dead`), input wiring, collision handling, the difficulty ramp, and run flow (launch/pause/restart/death). |
 | `src/flight.ts` | `Flight` — the mouse-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
 | `src/input.ts` | `createPointer()` — normalizes mouse position to `[-1, 1]` from screen center. |
 | `src/ship.ts` | `createShip()` — builds the placeholder low-poly ship from primitives. |
 | `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, ship↔rock collision, rock↔rock rigid-body physics, debug spheres). |
 | `src/starfield.ts` | `createStarfield()` / `updateStarfield()` — the infinite wrapping starfield with a GPU near-fade. |
 | `src/game.ts` | `Game` (health, invulnerability, death, score) and `Shake` (trauma-based camera shake). |
+| `src/ui.ts` | `UI` — the whole DOM layer: the in-flight HUD (health, score, reticle, pause button, stats) and every full-screen overlay (main menu with Settings / Leaderboard sub-views, pause menu, and the death / name-entry screen). Holds no game state; `main.ts` drives it via `showX()` calls and per-frame setters, and buttons report back through callbacks. |
+| `src/leaderboard.ts` | `Leaderboard` — in-memory top-10 high-score table (seeded with a few starter scores), sorted by survival time. `add()` / `entries` are the only surface, so persistence can slot in behind them later. |
 
 `plan.md` documents the phased build history and the asteroid/collision design in depth —
 read it for the *why* behind the geometry code.
@@ -115,6 +119,10 @@ read it for the *why* behind the geometry code.
   scaling with size — resolved in a ship-centered bubble, so the field jostles and scatters
   instead of drifting on rails.
 - 3 health, brief post-hit invulnerability (with ship flicker), camera shake on impact.
+- A **main menu** (Launch / Settings / Leaderboard) shown on boot over a drifting attract-mode
+  field, an in-game **pause menu** (Continue / Restart / Main Menu), and an on-screen ⏸ button
+  so the game is fully playable with just a mouse or a touchscreen.
+- An **in-memory leaderboard**: on death you enter a name and see the rank your run earned.
 - Survival-time score (mm:ss) with a persistent best (`localStorage`), a death screen, and
   an `M`-key debug stats panel (speed, density, fps, …).
 - Difficulty ramp: field density and ship speed rise with distance.
@@ -128,10 +136,12 @@ Near-term polish and features, roughly in priority order:
 
 ### Presentation & UX
 - **Black-and-white visual identity.** Move the UI to a clean, white font on a monochrome
-  palette; tighten the HUD and overlays to match.
-- **Start screen.** A title screen with **Play**, **Options**, and (later) high-scores;
-  the game should boot here rather than straight into flight.
-- **Launch sequence.** Once **Play** is pressed, play a short "launch" animation
+  palette; tighten the HUD and overlays to match. (The menus exist now but still use the
+  current bluish palette — this restyle is the next UX pass.)
+- ~~**Start screen.**~~ *Done* — the game boots to a main menu with **Launch**, **Settings**,
+  and **Leaderboard**. Still to flesh out: real **Settings** (currently a placeholder — sound
+  sliders land with the audio work) and **persistent** leaderboard scores (currently in-memory).
+- **Launch sequence.** Once **Launch** is pressed, play a short "launch" animation
   (hold on the pad, ignition, acceleration into the field) before control is handed over.
 
 ### Ship & effects
@@ -150,8 +160,9 @@ Near-term polish and features, roughly in priority order:
 ### Content & meta (from the original)
 - **Ship select** and the original's **7 ships**, each tuned by its four stats
   (`mouse_speed` / `turning` / `speed` / `drift`) — the `Flight` config already models these.
-- **Online leaderboard** to replace the Scratch cloud-variable scoreboard (needs a small
-  backend).
+- **Persistent leaderboard.** The in-memory `Leaderboard` (name + survival time, seeded, top 10)
+  already backs the menu and the death-screen name entry; the remaining step is durable storage
+  (`localStorage` first, then a small backend to replace the Scratch cloud-variable scoreboard).
 
 > The four ship stats and the density curve in the original are 2-D per-frame constants;
 > treat them as starting ratios and tune by feel in 3-D.
