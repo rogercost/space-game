@@ -101,10 +101,17 @@ const STYLE = `
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset; pointer-events: none; z-index: 10;
 }
 .s3d-health {
-  position: fixed; left: 18px; top: 14px;
-  font: 600 28px/1 system-ui, sans-serif; color: #ff5566; letter-spacing: 6px;
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); pointer-events: none; z-index: 15;
+  position: fixed; left: 18px; top: 14px; display: flex; gap: 8px;
+  pointer-events: none; z-index: 15;
 }
+/* Same glyph for full and empty so both render at exactly the same size; full is a
+   solid white heart, empty is the same heart drawn as a white outline. */
+.s3d-heart {
+  font: 22px/1 system-ui, sans-serif; color: transparent;
+  -webkit-text-stroke: 1.5px #fff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+}
+.s3d-heart.is-full { color: #fff; }
 .s3d-score-wrap {
   position: fixed; right: 18px; top: 12px; text-align: right; pointer-events: none; z-index: 15;
   font-family: system-ui, sans-serif; color: #dfe8ff; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
@@ -334,7 +341,11 @@ export class UI {
   setHealth(health: number, maxHealth: number): void {
     if (health === this.lastHealth) return
     this.lastHealth = health
-    this.healthEl.textContent = '♥'.repeat(health) + '♡'.repeat(maxHealth - health)
+    let html = ''
+    for (let i = 0; i < maxHealth; i++) {
+      html += `<span class="s3d-heart${i < health ? ' is-full' : ''}">♥</span>`
+    }
+    this.healthEl.innerHTML = html
   }
 
   setScore(seconds: number): void {

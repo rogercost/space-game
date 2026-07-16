@@ -37,7 +37,7 @@ export class Game {
   }
 
   /** Take a hit: lose 1 health, become briefly invulnerable. Returns true if now dead. */
-  hit(invulnTime = 1.2): boolean {
+  hit(invulnTime = 1.8): boolean {
     this.health -= 1
     this.invuln = invulnTime
     if (this.health <= 0) {

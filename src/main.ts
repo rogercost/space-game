@@ -1,4 +1,9 @@
 import * as THREE from 'three'
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { createStarfield, updateStarfield } from './starfield'
 import { createShip } from './ship'
 import { createPointer } from './input'
@@ -6,6 +11,7 @@ import { Flight, DEFAULT_FLIGHT } from './flight'
 import { AsteroidField, DEFAULT_FIELD } from './asteroids'
 import { Game, Shake } from './game'
 import { Leaderboard } from './leaderboard'
+import { Trail } from './trail'
 import { UI } from './ui'
 
 const SPACE_COLOR = 0x05060a
@@ -58,7 +64,7 @@ const shake = new Shake()
 const leaderboard = new Leaderboard()
 
 // Ship collider: a single sphere a bit smaller than the hull (player-favored).
-const SHIP_RADIUS = 0.8
+const SHIP_RADIUS = 1.15
 const shipCollider = new THREE.Mesh(
   new THREE.IcosahedronGeometry(SHIP_RADIUS, 2),
   new THREE.MeshBasicMaterial({
@@ -71,6 +77,65 @@ const shipCollider = new THREE.Mesh(
 )
 shipCollider.visible = false
 ship.add(shipCollider)
+
+// Materials flashed white during post-hit invulnerability (see setShipFlash).
+const flashMaterials = ship.userData.flashMaterials as THREE.MeshStandardMaterial[]
+
+// Ship exhaust trail — a world-space ribbon; hidden on the menu, reset at each launch.
+const trail = new Trail()
+scene.add(trail.mesh)
+
+// --- Post-processing: selective bloom -------------------------------------
+// Only the trail and the engine glow bloom (they carry a dedicated layer); everything
+// else — stars, asteroids, the ship hull — renders normally. Two passes: a bloom-only
+// render of the glow layer against black, added over the full-scene render. Threshold 0,
+// because only the glow layer is in that render, so the whole trail glows smoothly (no seam).
+const BLOOM_LAYER = 1
+trail.mesh.layers.enable(BLOOM_LAYER)
+for (const m of ship.userData.glowMeshes as THREE.Object3D[]) m.layers.enable(BLOOM_LAYER)
+
+const bloomComposer = new EffectComposer(renderer)
+bloomComposer.renderToScreen = false
+bloomComposer.addPass(new RenderPass(scene, camera))
+const bloom = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.3, // strength
+  0.5, // radius
+  0, // threshold
+)
+bloomComposer.addPass(bloom)
+
+const mixPass = new ShaderPass(
+  new THREE.ShaderMaterial({
+    uniforms: {
+      baseTexture: { value: null },
+      bloomTexture: { value: bloomComposer.renderTarget2.texture },
+    },
+    vertexShader:
+      'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader:
+      'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv); }',
+  }),
+  'baseTexture',
+)
+mixPass.needsSwap = true
+
+const finalComposer = new EffectComposer(renderer)
+finalComposer.addPass(new RenderPass(scene, camera))
+finalComposer.addPass(mixPass)
+finalComposer.addPass(new OutputPass())
+
+// Render the glow layer (against black) into the bloom target, then the full scene with
+// the bloom added back over it.
+function renderScene(): void {
+  const bg = scene.background
+  scene.background = null
+  camera.layers.set(BLOOM_LAYER)
+  bloomComposer.render()
+  scene.background = bg
+  camera.layers.set(0)
+  finalComposer.render()
+}
 
 // --- Difficulty ramp & score ----------------------------------------------
 const BASE_SPEED = DEFAULT_FLIGHT.speed
@@ -94,18 +159,23 @@ function updateDifficulty(distance: number): void {
 // --- App state machine ----------------------------------------------------
 // menu -> playing <-> paused, and playing -> dead. Boot lands on the menu; the
 // 3D scene keeps rendering behind every screen (see the animate() branches).
-type Screen = 'menu' | 'playing' | 'paused' | 'dead'
+type Screen = 'menu' | 'launching' | 'playing' | 'paused' | 'dead'
 let screen: Screen = 'menu'
 let deathTime = 0
 let fps = 60
 
+// Launch intro: the ship rises from below the viewport into flying position.
+const LAUNCH_DURATION = 1.1 // seconds
+const LAUNCH_START_Y = -9 // ship start height, below the camera's view
+let launchT = 0
+
 const ui = new UI({
-  onLaunch: startRun,
+  onLaunch: beginLaunch,
   onContinue: resume,
-  onRestart: startRun,
+  onRestart: beginLaunch,
   onMainMenu: goMenu,
   onPause: pause,
-  onPlayAgain: startRun,
+  onPlayAgain: beginLaunch,
   onSubmitName: (name) => {
     savePlayerName(name)
     return leaderboard.add(name, deathTime)
@@ -115,7 +185,7 @@ const ui = new UI({
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard, bloom })
 
 ui.setBest(best)
 goMenu()
@@ -175,11 +245,36 @@ function updateCamera(dt: number): void {
   camera.lookAt(smoothLook)
 }
 
+// During the launch intro the camera holds the flying pose (heading is identity) so
+// the ship visibly rises into frame from below instead of the chase cam tracking it.
+function setLaunchCamera(): void {
+  camera.position.copy(CAM_OFFSET)
+  camera.up.copy(WORLD_UP)
+  camera.lookAt(0, 0, -12)
+}
+
+// Flash the hull/accent materials white (emissive) without ever hiding the ship.
+function setShipFlash(on: boolean): void {
+  for (const m of flashMaterials) m.emissive.setHex(on ? 0xffffff : 0x000000)
+}
+
+// Trail emits from the engine (behind the nose). When the ship crabs, the trail leaves at
+// the nose's angle — which reads fine, since the ship really is sideslipping through the turn.
+const _emit = new THREE.Vector3()
+function enginePos(out: THREE.Vector3): THREE.Vector3 {
+  return out.copy(flight.forward).multiplyScalar(-1.5).add(ship.position)
+}
+function updateTrailFromShip(): void {
+  trail.update(enginePos(_emit), camera.position)
+}
+
 // --- Resize ---------------------------------------------------------------
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
+  bloomComposer.setSize(window.innerWidth, window.innerHeight)
+  finalComposer.setSize(window.innerWidth, window.innerHeight)
 })
 
 // --- Render loop ----------------------------------------------------------
@@ -189,7 +284,23 @@ function animate(): void {
   // depends on the current screen. The scene renders every frame regardless.
   const dt = Math.min(clock.getDelta(), 0.05)
 
-  if (screen === 'playing') {
+  if (screen === 'launching') {
+    // Raise the ship from below the viewport into flying position; camera held fixed
+    // so it visibly emerges from below rather than the chase cam tracking it.
+    launchT += dt
+    const t = Math.min(1, launchT / LAUNCH_DURATION)
+    const e = 1 - Math.pow(1 - t, 3) // ease-out
+    ship.position.set(0, THREE.MathUtils.lerp(LAUNCH_START_Y, 0, e), 0)
+    setLaunchCamera()
+    field.update(dt, ship.position, flight.forward)
+    updateStarfield(starfield, ship.position)
+    updateTrailFromShip()
+    if (t >= 1) {
+      camBase.copy(CAM_OFFSET) // hand over to the chase cam, already at the flying pose
+      smoothLook.set(0, 0, -12)
+      screen = 'playing'
+    }
+  } else if (screen === 'playing') {
     game.update(dt)
     shake.update(dt)
     flight.update(dt, pointer.value.x, pointer.value.y)
@@ -201,9 +312,10 @@ function animate(): void {
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
+    updateTrailFromShip()
 
-    // Flicker the ship while invulnerable; otherwise keep it visible.
-    ship.visible = game.invulnerable ? Math.floor(clock.elapsedTime * 20) % 2 === 0 : true
+    // Flash the ship white (never invisible) while invulnerable.
+    setShipFlash(game.invulnerable && Math.floor(clock.elapsedTime * 20) % 2 === 0)
 
     ui.setHealth(game.health, game.maxHealth)
     ui.setScore(game.time)
@@ -226,15 +338,16 @@ function animate(): void {
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
+    updateTrailFromShip()
   } else if (screen === 'menu') {
-    // Attract-mode backdrop: the field drifts past the idle ship.
+    // Attract-mode backdrop: the field drifts behind the menu (ship hidden).
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
   }
   // 'paused' freezes the world; we just re-render the last frame under the menu.
 
-  renderer.render(scene, camera)
+  renderScene()
   requestAnimationFrame(animate)
 }
 animate()
@@ -250,22 +363,29 @@ function handleCollision(): void {
 
 function goMenu(): void {
   screen = 'menu'
+  ship.visible = false // no ship behind the menu
+  trail.mesh.visible = false
   ui.showMenu()
 }
 
-function startRun(): void {
+function beginLaunch(): void {
   game.reset()
-  flight.reset()
+  flight.reset() // ship back to the origin, facing -Z, at rest
   flight.cfg.speed = BASE_SPEED
   field.cfg.count = BASE_COUNT
-  field.init(ship.position, flight.forward)
+  field.init(ship.position, flight.forward) // centred on the origin
   shake.reset()
+  setShipFlash(false)
+  // Drop the ship below the viewport; the launch intro raises it into place.
+  ship.position.set(0, LAUNCH_START_Y, 0)
   ship.visible = true
-  // Snap the camera behind the freshly launched ship.
-  camBase.copy(CAM_OFFSET)
-  smoothLook.set(0, 0, -12)
-  screen = 'playing'
+  trail.reset(enginePos(_emit))
+  trail.mesh.visible = true
+  launchT = 0
+  screen = 'launching'
   ui.showPlaying()
+  ui.setHealth(game.health, game.maxHealth)
+  ui.setScore(0)
 }
 
 function pause(): void {
@@ -287,7 +407,8 @@ function goDeath(): void {
     saveBest(best)
     ui.setBest(best)
   }
-  ship.visible = true // stop any invuln flicker for the death scene
+  ship.visible = true
+  setShipFlash(false) // no invuln flash on the death scene
   screen = 'dead'
   ui.showDeath(deathTime, best, loadPlayerName())
 }
