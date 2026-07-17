@@ -78,3 +78,8 @@ Thumbs.db
 *.swo
 *~
 .gapi-config.json
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
