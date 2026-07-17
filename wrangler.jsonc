@@ -1,0 +1,30 @@
+// Cloudflare Worker: serves the built game from dist/ as static assets (free,
+// unlimited) and the /api/scores leaderboard routes from worker/index.ts.
+//
+// One-time setup (see README "Deployment"):
+//   npx wrangler login
+//   npx wrangler d1 create starvoid-leaderboard   -> paste database_id below
+//   npx wrangler d1 migrations apply starvoid-leaderboard --remote
+//   npm run deploy
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "starvoid",
+	"main": "worker/index.ts",
+	"compatibility_date": "2026-07-01",
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		// Unmatched paths (client-side routes, if any ever exist) fall back to the app.
+		"not_found_handling": "single-page-application"
+	},
+	"d1_databases": [
+		{
+			"binding": "starvoid_leaderboard",
+			"database_name": "starvoid-leaderboard",
+			"database_id": "a9f70ec6-9912-48af-8c91-642e880947c7"
+		}
+	],
+	"observability": {
+		"enabled": true
+	}
+}

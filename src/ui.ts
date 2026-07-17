@@ -225,7 +225,7 @@ export class UI {
     this.menuRoot = this.el('div', 's3d-panel')
     this.menuBest = this.el('div', 's3d-subtitle', 'best 0:00')
     this.menuRoot.append(
-      this.el('div', 's3d-title', 'STARSHIP'),
+      this.el('div', 's3d-title', 'STARVOID'),
       this.menuBest,
       this.button('LAUNCH', () => this.handlers.onLaunch(), 's3d-btn--primary'),
       this.button('SETTINGS', () => this.showView(this.settingsView)),

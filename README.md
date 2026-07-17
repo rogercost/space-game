@@ -15,11 +15,16 @@ time is the score.
 Requires Node.js (18+) and npm.
 
 ```bash
-npm install      # install dependencies (three, vite, typescript)
+npm install      # install dependencies (three, vite, typescript, wrangler)
 npm run dev      # start the dev server (hot reload) -> http://localhost:5173
-npm run build    # typecheck (tsc) + production bundle into dist/
+npm run build    # typecheck (tsc, client + worker) + production bundle into dist/
 npm run preview  # serve the production build locally
+npm run dev:worker  # build + run the full stack (worker + local D1) -> http://localhost:8787
+npm run deploy   # build + deploy the Worker (assets + API) to Cloudflare
 ```
+
+Plain `npm run dev` has no `/api` routes, so the leaderboard silently runs on its
+in-memory seed data — persistence is exercised via `npm run dev:worker` or in prod.
 
 ### Controls
 
@@ -57,7 +62,8 @@ one concern, wired together in `main.ts`.
 | `src/starfield.ts` | `createStarfield()` / `updateStarfield()` — the infinite wrapping starfield with a GPU near-fade. |
 | `src/game.ts` | `Game` (health, invulnerability, death, score) and `Shake` (trauma-based camera shake). |
 | `src/ui.ts` | `UI` — the whole DOM layer: the in-flight HUD (health, score, reticle, pause button, stats) and every full-screen overlay (main menu with Settings / Leaderboard sub-views, pause menu, and the death / name-entry screen). Holds no game state; `main.ts` drives it via `showX()` calls and per-frame setters, and buttons report back through callbacks. |
-| `src/leaderboard.ts` | `Leaderboard` — in-memory top-10 high-score table (seeded with a few starter scores), sorted by survival time. `add()` / `entries` are the only surface, so persistence can slot in behind them later. |
+| `src/leaderboard.ts` | `Leaderboard` — top-10 high-score table with a synchronous in-memory cache (seeded) and optional persistence: `refresh()` pulls `/api/scores` into the cache when the API exists (deployed / `wrangler dev`), `add()` ranks locally right away and POSTs in the background. Under plain `vite dev` every fetch fails silently and the board is purely in-memory. |
+| `worker/index.ts` | The deployed backend (Cloudflare Worker): serves `dist/` as static assets and implements `GET`/`POST /api/scores` against the D1 `scores` table (schema + seeds in `migrations/`). Config lives in `wrangler.jsonc`. |
 | `src/audio.ts` | `GameAudio` — the Web Audio layer: two looping tracks (*The Quiet Arc* on the menu, *Sunlight at Apogee* in flight, bundled from `src/assets/`), a synthesized jet-engine voice (detuned saw drone + a whine that sweeps up with RPM + breath noise, all following one 0–1 level driven per-frame from ship state), impact thumps that briefly duck the rest of the mix, and the music/SFX buses behind the Settings sliders. The `AudioContext` is created lazily on the first user gesture to satisfy autoplay policies. |
 
 `plan.md` documents the phased build history and the asteroid/collision design in depth —
@@ -142,7 +148,9 @@ read it for the *why* behind the geometry code.
 - A **main menu** (Launch / Settings / Leaderboard) shown on boot over a drifting attract-mode
   field, an in-game **pause menu** (Continue / Restart / Main Menu), and an on-screen ⏸ button
   so the game is fully playable with just a mouse or a touchscreen.
-- An **in-memory leaderboard**: on death you enter a name and see the rank your run earned.
+- A **persistent leaderboard**: on death you enter a name and see the rank your run earned.
+  Deployed, scores live in Cloudflare D1 behind `/api/scores`; locally (or offline) the same
+  code falls back to an in-memory seeded board.
 - **Audio**: *The Quiet Arc* plays over the main menu (starting on the first click/keypress,
   per autoplay rules) and *Sunlight at Apogee* loops during runs (restarts each launch, freezes
   with pause, fades out on death); a tonal jet-engine drone/whine rises from silence at launch
@@ -157,6 +165,31 @@ read it for the *why* behind the geometry code.
 
 ---
 
+## Deployment (Cloudflare Workers + D1)
+
+The game deploys as a single Cloudflare Worker (`wrangler.jsonc`): the `dist/` bundle is
+served as static assets (free and unlimited on the free plan) and `worker/index.ts` handles
+`/api/scores` against a D1 database. One-time setup:
+
+```bash
+npx wrangler login                                        # opens browser OAuth
+npx wrangler d1 create starvoid-leaderboard               # prints a database_id
+# -> paste the database_id into wrangler.jsonc
+npx wrangler d1 migrations apply starvoid-leaderboard --remote   # create + seed the table
+npm run deploy                                            # build + deploy; prints the URL
+```
+
+The first deploy may prompt to register your free `*.workers.dev` subdomain; after that the
+game lives at `starvoid.<your-subdomain>.workers.dev`. Subsequent releases are just
+`npm run deploy`. To test the full stack locally (worker + a local SQLite D1):
+
+```bash
+npx wrangler d1 migrations apply starvoid-leaderboard --local    # once
+npm run dev:worker                                        # http://localhost:8787
+```
+
+---
+
 ## Roadmap / next steps
 
 Near-term polish and features, roughly in priority order:
@@ -165,8 +198,7 @@ Near-term polish and features, roughly in priority order:
 - ~~**Black-and-white visual identity.**~~ *Settled* — staying with the current palette and
   HUD as they are; no dedicated monochrome restyle is planned.
 - ~~**Start screen.**~~ *Done* — the game boots to a main menu with **Launch**, **Settings**
-  (music/SFX volume sliders), and **Leaderboard**. Still to flesh out: **persistent**
-  leaderboard scores (currently in-memory).
+  (music/SFX volume sliders), and **Leaderboard**.
 - ~~**Launch sequence.**~~ *Done (basic)* — pressing **Launch** raises the ship from below the
   viewport into flying position before handing over control. A richer sequence (pad hold, ignition,
   acceleration) could still be layered on.
@@ -193,9 +225,10 @@ Near-term polish and features, roughly in priority order:
 ### Content & meta (from the original)
 - **Ship select** and the original's **7 ships**, each tuned by its four stats
   (`mouse_speed` / `turning` / `speed` / `drift`) — the `Flight` config already models these.
-- **Persistent leaderboard.** The in-memory `Leaderboard` (name + survival time, seeded, top 10)
-  already backs the menu and the death-screen name entry; the remaining step is durable storage
-  (`localStorage` first, then a small backend to replace the Scratch cloud-variable scoreboard).
+- ~~**Persistent leaderboard.**~~ *Done* — scores persist in **Cloudflare D1** behind a tiny
+  Worker API (`worker/index.ts`, `GET`/`POST /api/scores`), replacing the Scratch
+  cloud-variable scoreboard. The client keeps a synchronous in-memory cache (optimistic local
+  rank, background POST) and falls back to seeded in-memory scores when no API is reachable.
 
 > The four ship stats and the density curve in the original are 2-D per-frame constants;
 > treat them as starting ratios and tune by feel in 3-D.

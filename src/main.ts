@@ -346,6 +346,7 @@ function goMenu(): void {
   ship.visible = false // no ship behind the menu
   trail.mesh.visible = false
   audio.menu()
+  void leaderboard.refresh() // freshen the board before the player opens it
   ui.showMenu()
 }
 

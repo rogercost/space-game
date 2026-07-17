@@ -78,3 +78,6 @@ Thumbs.db
 *.swo
 *~
 .gapi-config.json
+
+# Wrangler local state (local D1, cache)
+.wrangler/
