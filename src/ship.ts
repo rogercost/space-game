@@ -23,26 +23,25 @@ const ENGINE_OUTER_FRONT_RADIUS = 0.21
 const ENGINE_OUTER_REAR_RADIUS = 0.18
 const ENGINE_FRONT_Z = 1.34
 const ENGINE_REAR_Z = 1.68
+const WING_THICKNESS = 0.08
+const TAIL_THICKNESS = 0.07
 
 export function createShip(): ShipModel {
   const ship = new THREE.Group()
   ship.name = 'ship'
 
-  // hull + accent are DoubleSide so the flat-triangle wings/fin light from both
-  // sides (and so a single shared material per part still flashes as one unit).
+  // Hull and accent stay shared across parts so each color flashes as one unit.
   const hullMat = new THREE.MeshStandardMaterial({
     color: 0x9aa6b2,
     metalness: 0.6,
     roughness: 0.4,
     flatShading: true,
-    side: THREE.DoubleSide,
   })
   const accentMat = new THREE.MeshStandardMaterial({
     color: 0x3b4a63,
     metalness: 0.5,
     roughness: 0.5,
     flatShading: true,
-    side: THREE.DoubleSide,
   })
   const glassMat = new THREE.MeshStandardMaterial({
     color: 0x101820,
@@ -68,15 +67,31 @@ export function createShip(): ShipModel {
   body.position.z = 0.75 // spans ~ z=0.0 .. 1.5
   ship.add(body)
 
-  // Swept delta wings — flat triangles with a slight tip droop (anhedral).
+  // Swept delta wings with a slight tip droop (anhedral).
   const rootFore: Vec = [0.13, 0, -0.1]
   const rootAft: Vec = [0.13, 0, 1.05]
   const tip: Vec = [1.5, -0.06, 0.92]
-  ship.add(triangle(rootFore, rootAft, tip, hullMat)) // right
-  ship.add(triangle(mirrorX(rootFore), mirrorX(rootAft), mirrorX(tip), hullMat)) // left
+  ship.add(triangularPrism(rootFore, rootAft, tip, WING_THICKNESS, hullMat)) // right
+  ship.add(
+    triangularPrism(
+      mirrorX(rootFore),
+      mirrorX(rootAft),
+      mirrorX(tip),
+      WING_THICKNESS,
+      hullMat,
+    ),
+  ) // left
 
   // Vertical tail fin (a delta in the X=0 plane, near the tail).
-  ship.add(triangle([0, 0.12, 0.85], [0, 0.12, 1.45], [0, 0.7, 1.4], accentMat))
+  ship.add(
+    triangularPrism(
+      [0, 0.12, 0.85],
+      [0, 0.12, 1.45],
+      [0, 0.7, 1.4],
+      TAIL_THICKNESS,
+      accentMat,
+    ),
+  )
 
   // Cockpit canopy: a half-dome near the front.
   const canopy = new THREE.Mesh(
@@ -153,13 +168,54 @@ export function createShip(): ShipModel {
 
 type Vec = [number, number, number]
 
-/** A single flat triangle mesh (face-normal flat shading); `mat` is shared (DoubleSide). */
-function triangle(a: Vec, b: Vec, c: Vec, mat: THREE.MeshStandardMaterial): THREE.Mesh {
+/** A closed triangular prism extruded equally along the source triangle's face normal. */
+function triangularPrism(
+  a: Vec,
+  b: Vec,
+  c: Vec,
+  thickness: number,
+  mat: THREE.MeshStandardMaterial,
+): THREE.Mesh {
+  const av = new THREE.Vector3(...a)
+  const bv = new THREE.Vector3(...b)
+  const cv = new THREE.Vector3(...c)
+  const ab = new THREE.Vector3().subVectors(bv, av)
+  const ac = new THREE.Vector3().subVectors(cv, av)
+  const offset = new THREE.Vector3()
+    .crossVectors(ab, ac)
+    .normalize()
+    .multiplyScalar(thickness / 2)
+
+  const ap = av.clone().add(offset)
+  const bp = bv.clone().add(offset)
+  const cp = cv.clone().add(offset)
+  const am = av.clone().sub(offset)
+  const bm = bv.clone().sub(offset)
+  const cm = cv.clone().sub(offset)
+
+  const positions: number[] = []
+  const face = (p: THREE.Vector3, q: THREE.Vector3, r: THREE.Vector3): void => {
+    positions.push(p.x, p.y, p.z, q.x, q.y, q.z, r.x, r.y, r.z)
+  }
+  const side = (
+    pMinus: THREE.Vector3,
+    qMinus: THREE.Vector3,
+    qPlus: THREE.Vector3,
+    pPlus: THREE.Vector3,
+  ): void => {
+    face(pMinus, qMinus, qPlus)
+    face(pMinus, qPlus, pPlus)
+  }
+
+  // Broad faces, then one rectangular wall for each triangle edge.
+  face(ap, bp, cp)
+  face(cm, bm, am)
+  side(am, bm, bp, ap)
+  side(bm, cm, cp, bp)
+  side(cm, am, ap, cp)
+
   const geom = new THREE.BufferGeometry()
-  geom.setAttribute(
-    'position',
-    new THREE.BufferAttribute(new Float32Array([...a, ...b, ...c]), 3),
-  )
+  geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
   geom.computeVertexNormals()
   return new THREE.Mesh(geom, mat)
 }
