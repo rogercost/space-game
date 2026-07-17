@@ -240,6 +240,7 @@ export class UI {
     settingsHelp.innerHTML =
       '<b>Controls</b><br>' +
       'Mouse&nbsp;&nbsp;steer<br>' +
+      'Touch&nbsp;&nbsp;drag to steer<br>' +
       'Space&nbsp;&nbsp;pause / resume<br>' +
       'C&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collider debug<br>' +
       'M&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats panel'

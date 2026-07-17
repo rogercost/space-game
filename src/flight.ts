@@ -3,9 +3,9 @@ import * as THREE from 'three'
 export interface FlightConfig {
   /** Forward cruise speed (units/sec). */
   speed: number
-  /** Max yaw/pitch turn rate at full mouse deflection (rad/sec). */
+  /** Max yaw/pitch turn rate at full pointer deflection (rad/sec). */
   maxTurnRate: number
-  /** How quickly the turn rate chases the mouse. Higher = snappier steering. */
+  /** How quickly the turn rate chases the pointer. Higher = snappier steering. */
   turnResponse: number
   /** How quickly velocity realigns to the nose. Lower = floatier / more drift. */
   driftResponse: number
@@ -38,8 +38,8 @@ function damp(current: number, target: number, lambda: number, dt: number): numb
 }
 
 /**
- * Mouse-steered forward flyer. The ship always thrusts along its nose; the
- * mouse offset from screen center sets target yaw/pitch *rates* (so you can
+ * Pointer-steered forward flyer. The ship always thrusts along its nose; the
+ * pointer offset from screen center sets target yaw/pitch *rates* (so you can
  * turn continuously, even loop), and velocity lags behind the heading to give
  * the drifty, inertial feel of the original. Banking is a purely visual roll
  * about the nose and does not affect the flight direction.
@@ -99,7 +99,7 @@ export class Flight {
     const ax = Math.abs(aimX) < DEADZONE ? 0 : aimX
     const ay = Math.abs(aimY) < DEADZONE ? 0 : aimY
 
-    // Mouse offset -> target turn rates (mouse right => nose right, up => nose up).
+    // Pointer offset -> target turn rates (right => nose right, up => nose up).
     const targetYaw = -ax * c.maxTurnRate
     const targetPitch = ay * c.maxTurnRate
     this.yawRate = damp(this.yawRate, targetYaw, c.turnResponse, dt)

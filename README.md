@@ -4,9 +4,11 @@ An endless 3D asteroid-dodging game built with [three.js](https://threejs.org/) 
 TypeScript — a full-3D reimagining of the Scratch game
 [**Starship**](https://scratch.mit.edu/projects/818748698) by *-PinPoint-*.
 
+[**Play Starvoid online.**](https://starvoid.stevensapps.workers.dev)
+
 You pilot a ship that always thrusts forward through an ever-denser asteroid field.
-Steer with the mouse, dodge the rocks, survive as long as you can. Your survival
-time is the score.
+Steer with the mouse or by dragging on a touchscreen, dodge the rocks, and survive as
+long as you can. Your survival time is the score.
 
 ---
 
@@ -31,6 +33,7 @@ in-memory seed data — persistence is exercised via `npm run dev:worker` or in 
 | Input | Action |
 | --- | --- |
 | **Mouse** | Steer — offset from screen center sets pitch/yaw. Dead-center = fly straight. |
+| **Touchscreen** | Steer while dragging. Lift your finger to fly straight. |
 | **Space** or **⏸** | Pause / resume. The on-screen ⏸ button (top center) lets you pause with only a mouse or a touchscreen. |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
 | **M** | Toggle the debug stats panel (time, speed, density, collisions, fps). |
@@ -53,8 +56,8 @@ one concern, wired together in `main.ts`.
 | File | Responsibility |
 | --- | --- |
 | `src/main.ts` | Orchestrator: renderer, scene, camera, lights, the game loop, the app state machine (`menu`/`launching`/`playing`/`paused`/`dead`), input wiring, collision handling, the difficulty ramp, and run flow (launch/pause/restart/death). |
-| `src/flight.ts` | `Flight` — the mouse-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
-| `src/input.ts` | `createPointer()` — normalizes mouse position to `[-1, 1]` from screen center. |
+| `src/flight.ts` | `Flight` — the pointer-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
+| `src/input.ts` | `createPointer()` — normalizes mouse/touch position to `[-1, 1]` from screen center and recenters touch input on release. |
 | `src/ship.ts` | `createShip()` — builds the low-poly fighter jet from primitives (pointed nose, tapered fuselage, delta wings, tail fin, canopy, gray engine cowling, and recessed orange interior). Returns an explicit nozzle anchor for the exhaust plus the materials flashed white on hit. |
 | `src/trail.ts` | `Trail` — the ship's exhaust: emitted ballistic samples joined into a tapered, camera-facing ribbon. It leaves along the engine's aft axis even while the ship drifts, curves as the heading changes, and fades by age and camera distance. Additive blending keeps it bright without post-processing bloom. |
 | `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, ship↔rock collision, rock↔rock rigid-body physics, debug spheres). |
@@ -70,9 +73,9 @@ read it for the *why* behind the geometry code.
 
 ### Key design decisions
 
-- **Mouse-steered forward flyer.** The ship always thrusts along its nose; the mouse sets
-  target yaw/pitch *rates* (so you can turn continuously, even loop). Velocity lags the
-  heading for a drifty, inertial feel. See `Flight` in `flight.ts`.
+- **Pointer-steered forward flyer.** The ship always thrusts along its nose; the mouse or
+  active touch sets target yaw/pitch *rates* (so you can turn continuously, even loop).
+  Velocity lags the heading for a drifty, inertial feel. See `Flight` in `flight.ts`.
 - **Heading vs. bank are separate.** `Flight.heading` is a quaternion carrying yaw + pitch
   only (no roll). It drives both flight direction and the chase camera. Banking is applied
   as a *visual-only* roll on top, so the horizon never rolls and the camera never gimbal-flips.
@@ -131,7 +134,7 @@ read it for the *why* behind the geometry code.
 
 ## Current features
 
-- Mouse-steered inertial flight with banking and a smoothed trailing chase camera.
+- Mouse- or touch-steered inertial flight with banking and a smoothed trailing chase camera.
 - A low-poly **fighter jet** (delta wings, gray engine cowling, recessed orange interior)
   trailing a tapered, glowing exhaust plume that emits aft and curves through turns — with a
   short **launch intro** that raises the ship from below the viewport into flying position

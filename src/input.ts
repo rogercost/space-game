@@ -11,9 +11,34 @@ export interface Pointer {
 
 export function createPointer(): { value: Pointer } {
   const value: Pointer = { x: 0, y: 0 }
-  window.addEventListener('pointermove', (e) => {
+
+  const update = (e: PointerEvent): void => {
     value.x = (e.clientX / window.innerWidth) * 2 - 1
     value.y = -((e.clientY / window.innerHeight) * 2 - 1)
+  }
+
+  let activeTouchId: number | null = null
+
+  window.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || activeTouchId !== null) return
+    activeTouchId = e.pointerId
+    update(e)
   })
+
+  window.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && e.pointerId !== activeTouchId) return
+    update(e)
+  })
+
+  const releaseTouch = (e: PointerEvent): void => {
+    if (e.pointerType !== 'touch' || e.pointerId !== activeTouchId) return
+    activeTouchId = null
+    value.x = 0
+    value.y = 0
+  }
+
+  window.addEventListener('pointerup', releaseTouch)
+  window.addEventListener('pointercancel', releaseTouch)
+
   return { value }
 }
