@@ -34,7 +34,6 @@ in-memory seed data — persistence is exercised via `npm run dev:worker` or in 
 | **Space** or **⏸** | Pause / resume. The on-screen ⏸ button (top center) lets you pause with only a mouse or a touchscreen. |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
 | **M** | Toggle the debug stats panel (time, speed, density, collisions, fps). |
-| **B** | Toggle asteroid–asteroid collisions. |
 
 The game boots to a **main menu** (Launch / Settings / Leaderboard). Restart lives on the
 **pause menu** (Space → Restart) and the death screen — there is no restart key.

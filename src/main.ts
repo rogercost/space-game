@@ -157,7 +157,7 @@ Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, k
 ui.setBest(best)
 goMenu()
 
-// Space: pause/resume. C: collider debug. M: stats panel. B: rock collisions.
+// Space: pause/resume. C: collider debug. M: stats panel.
 // (Restart lives on the pause/death menus now — there's no restart key.)
 window.addEventListener('keydown', (e) => {
   const t = e.target as HTMLElement | null
@@ -173,9 +173,6 @@ window.addEventListener('keydown', (e) => {
     console.log('collider debug:', on ? 'on' : 'off')
   } else if (k === 'm') {
     console.log('stats:', ui.toggleStats() ? 'on' : 'off')
-  } else if (k === 'b') {
-    const on = field.toggleCollisions()
-    console.log('asteroid collisions:', on ? 'on' : 'off')
   }
 })
 

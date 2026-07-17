@@ -242,8 +242,7 @@ export class UI {
       'Mouse&nbsp;&nbsp;steer<br>' +
       'Space&nbsp;&nbsp;pause / resume<br>' +
       'C&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collider debug<br>' +
-      'M&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats panel<br>' +
-      'B&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;asteroid collisions'
+      'M&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats panel'
     this.settingsView.append(
       this.el('div', 's3d-title', 'SETTINGS'),
       this.slider('MUSIC', handlers.getMusicVolume(), (v) => this.handlers.onMusicVolume(v)),
