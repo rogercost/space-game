@@ -1,9 +1,4 @@
 import * as THREE from 'three'
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { createStarfield, updateStarfield } from './starfield'
 import { createShip } from './ship'
 import { createPointer } from './input'
@@ -49,7 +44,8 @@ scene.add(rimLight)
 const starfield = createStarfield()
 scene.add(starfield)
 
-const ship = createShip()
+const shipModel = createShip()
+const ship = shipModel.object
 scene.add(ship)
 
 const pointer = createPointer()
@@ -79,63 +75,11 @@ shipCollider.visible = false
 ship.add(shipCollider)
 
 // Materials flashed white during post-hit invulnerability (see setShipFlash).
-const flashMaterials = ship.userData.flashMaterials as THREE.MeshStandardMaterial[]
+const flashMaterials = shipModel.flashMaterials
 
 // Ship exhaust trail — a world-space ribbon; hidden on the menu, reset at each launch.
-const trail = new Trail()
+const trail = new Trail(shipModel.engineOpeningRadius * 0.9)
 scene.add(trail.mesh)
-
-// --- Post-processing: selective bloom -------------------------------------
-// Only the trail and the engine glow bloom (they carry a dedicated layer); everything
-// else — stars, asteroids, the ship hull — renders normally. Two passes: a bloom-only
-// render of the glow layer against black, added over the full-scene render. Threshold 0,
-// because only the glow layer is in that render, so the whole trail glows smoothly (no seam).
-const BLOOM_LAYER = 1
-trail.mesh.layers.enable(BLOOM_LAYER)
-for (const m of ship.userData.glowMeshes as THREE.Object3D[]) m.layers.enable(BLOOM_LAYER)
-
-const bloomComposer = new EffectComposer(renderer)
-bloomComposer.renderToScreen = false
-bloomComposer.addPass(new RenderPass(scene, camera))
-const bloom = new UnrealBloomPass(
-  new THREE.Vector2(window.innerWidth, window.innerHeight),
-  0.3, // strength
-  0.5, // radius
-  0, // threshold
-)
-bloomComposer.addPass(bloom)
-
-const mixPass = new ShaderPass(
-  new THREE.ShaderMaterial({
-    uniforms: {
-      baseTexture: { value: null },
-      bloomTexture: { value: bloomComposer.renderTarget2.texture },
-    },
-    vertexShader:
-      'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-    fragmentShader:
-      'uniform sampler2D baseTexture; uniform sampler2D bloomTexture; varying vec2 vUv; void main() { gl_FragColor = texture2D(baseTexture, vUv) + texture2D(bloomTexture, vUv); }',
-  }),
-  'baseTexture',
-)
-mixPass.needsSwap = true
-
-const finalComposer = new EffectComposer(renderer)
-finalComposer.addPass(new RenderPass(scene, camera))
-finalComposer.addPass(mixPass)
-finalComposer.addPass(new OutputPass())
-
-// Render the glow layer (against black) into the bloom target, then the full scene with
-// the bloom added back over it.
-function renderScene(): void {
-  const bg = scene.background
-  scene.background = null
-  camera.layers.set(BLOOM_LAYER)
-  bloomComposer.render()
-  scene.background = bg
-  camera.layers.set(0)
-  finalComposer.render()
-}
 
 // --- Difficulty ramp & score ----------------------------------------------
 const BASE_SPEED = DEFAULT_FLIGHT.speed
@@ -185,7 +129,7 @@ const ui = new UI({
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard, bloom })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard })
 
 ui.setBest(best)
 goMenu()
@@ -258,14 +202,17 @@ function setShipFlash(on: boolean): void {
   for (const m of flashMaterials) m.emissive.setHex(on ? 0xffffff : 0x000000)
 }
 
-// Trail emits from the engine (behind the nose). When the ship crabs, the trail leaves at
-// the nose's angle — which reads fine, since the ship really is sideslipping through the turn.
+// The ship model owns the nozzle attachment point. Its local +Z axis is aft, so these
+// world-space values remain correct if the engine dimensions or ship transform change.
 const _emit = new THREE.Vector3()
-function enginePos(out: THREE.Vector3): THREE.Vector3 {
-  return out.copy(flight.forward).multiplyScalar(-1.5).add(ship.position)
+const _aft = new THREE.Vector3()
+function readNozzleTransform(): void {
+  shipModel.engineNozzle.getWorldPosition(_emit)
+  shipModel.engineNozzle.getWorldDirection(_aft)
 }
-function updateTrailFromShip(): void {
-  trail.update(enginePos(_emit), camera.position)
+function updateTrailFromShip(dt: number): void {
+  readNozzleTransform()
+  trail.update(dt, _emit, _aft, flight.velocity, camera.position)
 }
 
 // --- Resize ---------------------------------------------------------------
@@ -273,8 +220,6 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight
   camera.updateProjectionMatrix()
   renderer.setSize(window.innerWidth, window.innerHeight)
-  bloomComposer.setSize(window.innerWidth, window.innerHeight)
-  finalComposer.setSize(window.innerWidth, window.innerHeight)
 })
 
 // --- Render loop ----------------------------------------------------------
@@ -294,7 +239,7 @@ function animate(): void {
     setLaunchCamera()
     field.update(dt, ship.position, flight.forward)
     updateStarfield(starfield, ship.position)
-    updateTrailFromShip()
+    updateTrailFromShip(dt)
     if (t >= 1) {
       camBase.copy(CAM_OFFSET) // hand over to the chase cam, already at the flying pose
       smoothLook.set(0, 0, -12)
@@ -312,7 +257,7 @@ function animate(): void {
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
-    updateTrailFromShip()
+    updateTrailFromShip(dt)
 
     // Flash the ship white (never invisible) while invulnerable.
     setShipFlash(game.invulnerable && Math.floor(clock.elapsedTime * 20) % 2 === 0)
@@ -338,7 +283,7 @@ function animate(): void {
     field.update(dt, ship.position, flight.forward)
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
-    updateTrailFromShip()
+    updateTrailFromShip(dt)
   } else if (screen === 'menu') {
     // Attract-mode backdrop: the field drifts behind the menu (ship hidden).
     field.update(dt, ship.position, flight.forward)
@@ -347,7 +292,7 @@ function animate(): void {
   }
   // 'paused' freezes the world; we just re-render the last frame under the menu.
 
-  renderScene()
+  renderer.render(scene, camera)
   requestAnimationFrame(animate)
 }
 animate()
@@ -379,7 +324,8 @@ function beginLaunch(): void {
   // Drop the ship below the viewport; the launch intro raises it into place.
   ship.position.set(0, LAUNCH_START_Y, 0)
   ship.visible = true
-  trail.reset(enginePos(_emit))
+  readNozzleTransform()
+  trail.reset(_emit, _aft, flight.velocity)
   trail.mesh.visible = true
   launchT = 0
   screen = 'launching'

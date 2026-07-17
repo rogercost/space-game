@@ -2,16 +2,29 @@ import * as THREE from 'three'
 
 /**
  * A low-poly fighter jet, built from primitives: a pointed nose cone, a tapered
- * fuselage, swept delta wings, a vertical tail fin, a canopy, and an engine glow.
+ * fuselage, swept delta wings, a vertical tail fin, a canopy, and a recessed engine.
  *
  * Convention: the nose points toward -Z (forward). The camera sits behind the
  * ship at +Z, so we view it from behind — the orientation we fly with.
  *
- * The hull + accent materials are stashed on `userData.flashMaterials` so the game
- * can flash the ship white during post-hit invulnerability (see main.ts) without
- * ever hiding it.
+ * The returned nozzle anchor is the exhaust system's source of truth for both its
+ * world position and aft direction. Keeping that attachment point in the model
+ * avoids duplicating engine dimensions in the flight/rendering code.
  */
-export function createShip(): THREE.Group {
+export interface ShipModel {
+  object: THREE.Group
+  engineNozzle: THREE.Object3D
+  engineOpeningRadius: number
+  flashMaterials: THREE.MeshStandardMaterial[]
+}
+
+const ENGINE_OPENING_RADIUS = 0.14
+const ENGINE_OUTER_FRONT_RADIUS = 0.21
+const ENGINE_OUTER_REAR_RADIUS = 0.18
+const ENGINE_FRONT_Z = 1.34
+const ENGINE_REAR_Z = 1.68
+
+export function createShip(): ShipModel {
   const ship = new THREE.Group()
   ship.name = 'ship'
 
@@ -36,11 +49,11 @@ export function createShip(): THREE.Group {
     metalness: 0.9,
     roughness: 0.1,
   })
-  const glowMat = new THREE.MeshStandardMaterial({
-    color: 0x44ccff,
-    emissive: 0x33bbff,
-    emissiveIntensity: 2.0,
-    roughness: 0.3,
+  const engineMat = new THREE.MeshStandardMaterial({
+    color: 0xff7a1a,
+    metalness: 0.05,
+    roughness: 0.8,
+    side: THREE.DoubleSide,
   })
 
   // Pointed nose: a long cone whose tip (the nose) points toward -Z.
@@ -74,18 +87,68 @@ export function createShip(): THREE.Group {
   canopy.position.set(0, 0.16, -0.15)
   ship.add(canopy)
 
-  // Engine glow at the tail (+Z).
-  const engine = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.18, 0.2, 12), glowMat)
-  engine.rotation.x = Math.PI / 2
-  engine.position.z = 1.5
-  ship.add(engine)
+  // Gray, open-ended cowling around a recessed orange inner sleeve and back plate.
+  // Nothing here is emissive or on the bloom layer: the orange reads as a hot-painted
+  // engine interior under the scene lights, not as a second light source.
+  const engineLength = ENGINE_REAR_Z - ENGINE_FRONT_Z
+  const cowling = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      ENGINE_OUTER_REAR_RADIUS,
+      ENGINE_OUTER_FRONT_RADIUS,
+      engineLength,
+      12,
+      1,
+      true,
+    ),
+    hullMat,
+  )
+  cowling.rotation.x = Math.PI / 2
+  cowling.position.z = (ENGINE_FRONT_Z + ENGINE_REAR_Z) / 2
+  ship.add(cowling)
 
-  // Materials the game flashes white during invulnerability (never hides the ship).
-  ship.userData.flashMaterials = [hullMat, accentMat]
-  // Meshes that should bloom (glow) — the engine only, not the hull.
-  ship.userData.glowMeshes = [engine]
+  const lip = new THREE.Mesh(
+    new THREE.RingGeometry(ENGINE_OPENING_RADIUS, ENGINE_OUTER_REAR_RADIUS, 12),
+    hullMat,
+  )
+  lip.position.z = ENGINE_REAR_Z
+  ship.add(lip)
 
-  return ship
+  const innerDepth = 0.16
+  const inner = new THREE.Mesh(
+    new THREE.CylinderGeometry(
+      ENGINE_OPENING_RADIUS,
+      ENGINE_OPENING_RADIUS,
+      innerDepth,
+      12,
+      1,
+      true,
+    ),
+    engineMat,
+  )
+  inner.rotation.x = Math.PI / 2
+  inner.position.z = ENGINE_REAR_Z - innerDepth / 2 - 0.01
+  ship.add(inner)
+
+  const backPlate = new THREE.Mesh(
+    new THREE.CircleGeometry(ENGINE_OPENING_RADIUS, 12),
+    engineMat,
+  )
+  backPlate.position.z = ENGINE_REAR_Z - innerDepth - 0.01
+  ship.add(backPlate)
+
+  // Local +Z is aft for this model. Object3D.getWorldDirection() therefore gives
+  // the direction in which exhaust should initially travel.
+  const engineNozzle = new THREE.Object3D()
+  engineNozzle.name = 'engine-nozzle'
+  engineNozzle.position.z = ENGINE_REAR_Z + 0.01
+  ship.add(engineNozzle)
+
+  return {
+    object: ship,
+    engineNozzle,
+    engineOpeningRadius: ENGINE_OPENING_RADIUS,
+    flashMaterials: [hullMat, accentMat],
+  }
 }
 
 type Vec = [number, number, number]

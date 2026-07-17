@@ -46,11 +46,11 @@ one concern, wired together in `main.ts`.
 
 | File | Responsibility |
 | --- | --- |
-| `src/main.ts` | Orchestrator: renderer, scene, camera, lights, selective-bloom post-processing, the game loop, the app state machine (`menu`/`launching`/`playing`/`paused`/`dead`), input wiring, collision handling, the difficulty ramp, and run flow (launch/pause/restart/death). |
+| `src/main.ts` | Orchestrator: renderer, scene, camera, lights, the game loop, the app state machine (`menu`/`launching`/`playing`/`paused`/`dead`), input wiring, collision handling, the difficulty ramp, and run flow (launch/pause/restart/death). |
 | `src/flight.ts` | `Flight` — the mouse-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
 | `src/input.ts` | `createPointer()` — normalizes mouse position to `[-1, 1]` from screen center. |
-| `src/ship.ts` | `createShip()` — builds the low-poly fighter jet from primitives (pointed nose, tapered fuselage, delta wings, tail fin, canopy, engine glow). Exposes the materials flashed white on hit and the engine mesh that blooms. |
-| `src/trail.ts` | `Trail` — the ship's exhaust: a thin, camera-facing ribbon following the recent flight path, fading by age and camera distance; glows via the bloom layer. |
+| `src/ship.ts` | `createShip()` — builds the low-poly fighter jet from primitives (pointed nose, tapered fuselage, delta wings, tail fin, canopy, gray engine cowling, and recessed orange interior). Returns an explicit nozzle anchor for the exhaust plus the materials flashed white on hit. |
+| `src/trail.ts` | `Trail` — the ship's exhaust: emitted ballistic samples joined into a tapered, camera-facing ribbon. It leaves along the engine's aft axis even while the ship drifts, curves as the heading changes, and fades by age and camera distance. Additive blending keeps it bright without post-processing bloom. |
 | `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, ship↔rock collision, rock↔rock rigid-body physics, debug spheres). |
 | `src/starfield.ts` | `createStarfield()` / `updateStarfield()` — the infinite wrapping starfield with a GPU near-fade. |
 | `src/game.ts` | `Game` (health, invulnerability, death, score) and `Shake` (trauma-based camera shake). |
@@ -83,10 +83,10 @@ read it for the *why* behind the geometry code.
 - **Infinite starfield.** Stars live in a cube that wraps around the ship (so you never run
   out), with a GPU per-vertex alpha fade so close stars dissolve instead of becoming big
   bright squares.
-- **Selective bloom for glow.** Only the engine glow and the exhaust trail sit on a dedicated
-  render layer; a two-pass composer blooms that layer against black and adds it over the normal
-  scene, so those accents glow while the stars, rocks, and hull stay crisp (see `renderScene` in
-  `main.ts`). Tune via `window.bloom` and the constants atop `trail.ts`.
+- **Crisp additive exhaust.** The trail uses additive vertex colors rather than post-processing
+  bloom. That keeps the plume bright while the orange engine interior, stars, rocks, and hull
+  stay crisp, and avoids rendering the scene through a second composer. Tune it via the constants
+  atop `trail.ts`.
 - **Difficulty ramps ∝ √(distance travelled)**, mirroring the original Scratch game's
   density curve.
 
@@ -116,9 +116,10 @@ read it for the *why* behind the geometry code.
 ## Current features
 
 - Mouse-steered inertial flight with banking and a smoothed trailing chase camera.
-- A low-poly **fighter jet** (delta wings, engine glow) trailing a thin, glowing exhaust that
-  follows the flight path — with a short **launch intro** that raises the ship from below the
-  viewport into flying position before control is handed over.
+- A low-poly **fighter jet** (delta wings, gray engine cowling, recessed orange interior)
+  trailing a tapered, glowing exhaust plume that emits aft and curves through turns — with a
+  short **launch intro** that raises the ship from below the viewport into flying position
+  before control is handed over.
 - Procedural, sphere-derived asteroids (round rocks, peanuts, and clovers)
   with per-rock tumble and drift, streamed in a forward-biased field that recycles as you fly.
 - Watertight marching-tetrahedra meshing with directional surface noise (no artifacts).
@@ -134,7 +135,7 @@ read it for the *why* behind the geometry code.
 - Survival-time score (mm:ss) with a persistent best (`localStorage`), a death screen, and
   an `M`-key debug stats panel (speed, density, fps, …).
 - Difficulty ramp: field density and ship speed rise with distance.
-- Depth fog, a parallax infinite starfield with near-fade, selective bloom (glowing engine + trail),
+- Depth fog, a parallax infinite starfield with near-fade, a bright additive exhaust trail,
   pause, and collider debug view.
 
 ---
@@ -156,9 +157,10 @@ Near-term polish and features, roughly in priority order:
 
 ### Ship & effects
 - ~~**Fighter-jet ship.**~~ *Done* — a gray low-poly jet (pointed nose, tapered fuselage, delta
-  wings, tail fin, canopy, engine glow), modelled procedurally in `ship.ts`.
-- ~~**Thrust trail.**~~ *Done* — a thin glowing exhaust ribbon that follows the flight path,
-  fading by age and camera distance, lit by selective bloom.
+  wings, tail fin, canopy, gray engine cowling, recessed orange interior), modelled
+  procedurally in `ship.ts`.
+- ~~**Thrust trail.**~~ *Done* — a tapered additive exhaust ribbon built from emitted samples,
+  curving through turns and fading by age and camera distance.
 - **Impact particles & FOV kick** on collisions for extra game-feel.
 
 ### Audio
