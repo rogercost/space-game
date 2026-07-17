@@ -16,12 +16,12 @@ export interface FlightConfig {
 }
 
 export const DEFAULT_FLIGHT: FlightConfig = {
-  speed: 50,
-  maxTurnRate: 1.8,
-  turnResponse: 7.5,
+  speed: 60,
+  maxTurnRate: 2.3,
+  turnResponse:10,
   driftResponse: 2,
-  maxBank: 0.6,
-  bankResponse: 4,
+  maxBank: 0.8,
+  bankResponse: 8,
 }
 
 const FORWARD = new THREE.Vector3(0, 0, -1)
