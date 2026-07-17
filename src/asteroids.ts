@@ -45,8 +45,8 @@ export const DEFAULT_FIELD: AsteroidFieldConfig = {
   minScale: 20,
   maxScale: 60,
   maxSpin: 1.6,
-  minDrift: 18,
-  maxDrift: 35,
+  minDrift: 30,
+  maxDrift: 60,
   collideRadius: 1000,
 }
 

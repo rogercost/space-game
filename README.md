@@ -33,6 +33,8 @@ npm run preview  # serve the production build locally
 
 The game boots to a **main menu** (Launch / Settings / Leaderboard). Restart lives on the
 **pause menu** (Space → Restart) and the death screen — there is no restart key.
+**Settings** holds the music and SFX volume sliders (persisted to `localStorage`; releasing
+the SFX slider plays a sample impact at the new volume).
 
 ---
 
@@ -56,6 +58,7 @@ one concern, wired together in `main.ts`.
 | `src/game.ts` | `Game` (health, invulnerability, death, score) and `Shake` (trauma-based camera shake). |
 | `src/ui.ts` | `UI` — the whole DOM layer: the in-flight HUD (health, score, reticle, pause button, stats) and every full-screen overlay (main menu with Settings / Leaderboard sub-views, pause menu, and the death / name-entry screen). Holds no game state; `main.ts` drives it via `showX()` calls and per-frame setters, and buttons report back through callbacks. |
 | `src/leaderboard.ts` | `Leaderboard` — in-memory top-10 high-score table (seeded with a few starter scores), sorted by survival time. `add()` / `entries` are the only surface, so persistence can slot in behind them later. |
+| `src/audio.ts` | `GameAudio` — the Web Audio layer: two looping tracks (*The Quiet Arc* on the menu, *Sunlight at Apogee* in flight, bundled from `src/assets/`), a synthesized jet-engine voice (detuned saw drone + a whine that sweeps up with RPM + breath noise, all following one 0–1 level driven per-frame from ship state), impact thumps that briefly duck the rest of the mix, and the music/SFX buses behind the Settings sliders. The `AudioContext` is created lazily on the first user gesture to satisfy autoplay policies. |
 
 `plan.md` documents the phased build history and the asteroid/collision design in depth —
 read it for the *why* behind the geometry code.
@@ -87,6 +90,14 @@ read it for the *why* behind the geometry code.
   bloom. That keeps the plume bright while the orange engine interior, stars, rocks, and hull
   stay crisp, and avoids rendering the scene through a second composer. Tune it via the constants
   atop `trail.ts`.
+- **Two music assets, synthesized SFX.** The menu ambience and the run soundtrack are bundled
+  MP3s on per-track gains under one music bus; everything else (the engine, impacts) is
+  synthesized on a small Web Audio graph in `audio.ts`. The engine is tonal — a detuned
+  sawtooth drone plus a sine "intake whine" that sweeps up with RPM over light breath noise —
+  driven by a single 0–1 level set per-frame from ship state: it spools up through the launch
+  intro, creeps upward with the difficulty speed ramp, and winds down with the post-death
+  coast. No SFX files, no timeline code. Impacts bypass and briefly dip a duck bus sitting
+  under music + engine, so hits stay audible at any volume mix.
 - **Difficulty ramps ∝ √(distance travelled)**, mirroring the original Scratch game's
   density curve.
 
@@ -132,6 +143,12 @@ read it for the *why* behind the geometry code.
   field, an in-game **pause menu** (Continue / Restart / Main Menu), and an on-screen ⏸ button
   so the game is fully playable with just a mouse or a touchscreen.
 - An **in-memory leaderboard**: on death you enter a name and see the rank your run earned.
+- **Audio**: *The Quiet Arc* plays over the main menu (starting on the first click/keypress,
+  per autoplay rules) and *Sunlight at Apogee* loops during runs (restarts each launch, freezes
+  with pause, fades out on death); a tonal jet-engine drone/whine rises from silence at launch
+  and winds back down to nothing as the ship coasts after death; asteroid hits land with a
+  synthesized thump that ducks the music/engine for a beat and stalls the engine to zero,
+  which re-spools with the launch ease — with music/SFX volume sliders in Settings (persisted).
 - Survival-time score (mm:ss) with a persistent best (`localStorage`), a death screen, and
   an `M`-key debug stats panel (speed, density, fps, …).
 - Difficulty ramp: field density and ship speed rise with distance.
@@ -145,12 +162,11 @@ read it for the *why* behind the geometry code.
 Near-term polish and features, roughly in priority order:
 
 ### Presentation & UX
-- **Black-and-white visual identity.** Move the UI to a clean, white font on a monochrome
-  palette; tighten the HUD and overlays to match. (The menus exist now but still use the
-  current bluish palette — this restyle is the next UX pass.)
-- ~~**Start screen.**~~ *Done* — the game boots to a main menu with **Launch**, **Settings**,
-  and **Leaderboard**. Still to flesh out: real **Settings** (currently a placeholder — sound
-  sliders land with the audio work) and **persistent** leaderboard scores (currently in-memory).
+- ~~**Black-and-white visual identity.**~~ *Settled* — staying with the current palette and
+  HUD as they are; no dedicated monochrome restyle is planned.
+- ~~**Start screen.**~~ *Done* — the game boots to a main menu with **Launch**, **Settings**
+  (music/SFX volume sliders), and **Leaderboard**. Still to flesh out: **persistent**
+  leaderboard scores (currently in-memory).
 - ~~**Launch sequence.**~~ *Done (basic)* — pressing **Launch** raises the ship from below the
   viewport into flying position before handing over control. A richer sequence (pad hold, ignition,
   acceleration) could still be layered on.
@@ -161,13 +177,18 @@ Near-term polish and features, roughly in priority order:
   procedurally in `ship.ts`.
 - ~~**Thrust trail.**~~ *Done* — a tapered additive exhaust ribbon built from emitted samples,
   curving through turns and fading by age and camera distance.
-- **Impact particles & FOV kick** on collisions for extra game-feel.
+- ~~**Impact particles & FOV kick** on collisions~~ *Settled* — the current hit feedback
+  (knockback, camera shake, white flash, impact sound) is enough; not planned.
 
 ### Audio
-- **Chiptune soundtrack, synthesized in-browser** via the Web Audio API using native
-  oscillator/synth waveforms (no audio files) — an arrangement inspired by
-  *Apogee Software's* **Raptor: Call of the Shadows** (1994). Add SFX (thrust, impact,
-  death) through the same synth path.
+- ~~**Soundtrack & SFX.**~~ *Done* — the game bundles two tracks: **"The Quiet Arc"** loops
+  over the main menu (and its Settings/Leaderboard sub-views), **"Sunlight at Apogee"** loops
+  while a run is live (restarting at each launch, pausing with the pause menu, fading out on
+  death; the pause menu itself is silent). SFX are synthesized in-browser via the Web Audio
+  API: a jet-intake engine drone/whine that rises from zero through the launch, tracks the
+  difficulty speed ramp, and falls back to zero as the ship coasts after death, plus a
+  thump + crunch on asteroid impacts that briefly ducks everything else. Music and SFX volume
+  sliders live in **Settings**, persisted to `localStorage`.
 
 ### Content & meta (from the original)
 - **Ship select** and the original's **7 ships**, each tuned by its four stats

@@ -25,6 +25,14 @@ export interface UIHandlers {
   onSubmitName(name: string): number
   /** Current leaderboard entries, best first (read fresh each time the board is shown). */
   getLeaderboard(): readonly ScoreEntry[]
+  /** Live volume changes (0..1) as the Settings sliders move. */
+  onMusicVolume(volume: number): void
+  onSfxVolume(volume: number): void
+  /** SFX slider released — play a sample hit so the new volume can be judged. */
+  onSfxPreview(): void
+  /** Initial slider positions (0..1). */
+  getMusicVolume(): number
+  getSfxVolume(): number
 }
 
 /** Seconds -> `m:ss`. */
@@ -94,6 +102,12 @@ const STYLE = `
 .s3d-time { font-variant-numeric: tabular-nums; }
 .s3d-help { font: 13px/1.7 ui-monospace, Menlo, monospace; opacity: 0.75; }
 .s3d-help b { opacity: 0.95; }
+.s3d-slider { display: flex; align-items: center; gap: 12px; }
+.s3d-slider span {
+  width: 56px; font: 600 13px/1 system-ui, sans-serif;
+  letter-spacing: 0.14em; opacity: 0.75;
+}
+.s3d-slider input { flex: 1; accent-color: #5b9bd8; cursor: pointer; }
 
 .s3d-reticle {
   position: fixed; left: 50%; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px;
@@ -101,15 +115,18 @@ const STYLE = `
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4) inset; pointer-events: none; z-index: 10;
 }
 .s3d-health {
-  position: fixed; left: 18px; top: 14px; display: flex; gap: 8px;
+  position: fixed; left: 28px; top: 14px; display: flex; gap: 34px;
   pointer-events: none; z-index: 15;
 }
 /* Same glyph for full and empty so both render at exactly the same size; full is a
-   solid white heart, empty is the same heart drawn as a white outline. */
+   solid white heart, empty is the same heart drawn as a white outline. The scaleX
+   stretches the glyph wider than tall (it overflows into the flex gap, which is
+   sized to leave visible spacing between hearts). */
 .s3d-heart {
-  font: 22px/1 system-ui, sans-serif; color: transparent;
-  -webkit-text-stroke: 1.5px #fff;
+  font: 44px/1 system-ui, sans-serif; color: transparent;
+  -webkit-text-stroke: 3px #fff;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.55);
+  display: inline-block; transform: scaleX(1.5);
 }
 .s3d-heart.is-full { color: #fff; }
 .s3d-score-wrap {
@@ -119,7 +136,7 @@ const STYLE = `
 .s3d-score { font-weight: 700; font-size: 30px; letter-spacing: 1px; }
 .s3d-best { font-weight: 500; font-size: 15px; opacity: 0.7; margin-top: 2px; }
 .s3d-stats {
-  position: fixed; left: 18px; top: 56px; white-space: pre; display: none;
+  position: fixed; left: 18px; top: 80px; white-space: pre; display: none;
   font: 13px/1.5 ui-monospace, Menlo, monospace; color: rgba(223, 232, 255, 0.85);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7); pointer-events: none; z-index: 15;
 }
@@ -229,7 +246,13 @@ export class UI {
       'B&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;asteroid collisions'
     this.settingsView.append(
       this.el('div', 's3d-title', 'SETTINGS'),
-      this.el('div', 's3d-subtitle', 'sound coming soon'),
+      this.slider('MUSIC', handlers.getMusicVolume(), (v) => this.handlers.onMusicVolume(v)),
+      this.slider(
+        'SFX',
+        handlers.getSfxVolume(),
+        (v) => this.handlers.onSfxVolume(v),
+        () => this.handlers.onSfxPreview(),
+      ),
       settingsHelp,
       this.button('BACK', () => this.showView(this.menuRoot)),
     )
@@ -426,7 +449,8 @@ export class UI {
   }
 
   private setHud(healthScore: boolean, reticle: boolean, pause: boolean): void {
-    this.healthEl.style.display = healthScore ? 'block' : 'none'
+    // 'flex' (not 'block'): the hearts rely on the container's flex gap.
+    this.healthEl.style.display = healthScore ? 'flex' : 'none'
     this.scoreWrap.style.display = healthScore ? 'block' : 'none'
     this.reticleEl.style.display = reticle ? 'block' : 'none'
     this.pauseBtn.style.display = pause ? 'flex' : 'none'
@@ -452,5 +476,24 @@ export class UI {
     b.type = 'button'
     b.addEventListener('click', onClick)
     return b
+  }
+
+  /** A labelled volume slider: onInput fires live (0..1), onCommit on release. */
+  private slider(
+    label: string,
+    initial: number,
+    onInput: (v: number) => void,
+    onCommit?: () => void,
+  ): HTMLDivElement {
+    const row = this.el('div', 's3d-slider')
+    const input = document.createElement('input')
+    input.type = 'range'
+    input.min = '0'
+    input.max = '100'
+    input.value = String(Math.round(initial * 100))
+    input.addEventListener('input', () => onInput(Number(input.value) / 100))
+    if (onCommit) input.addEventListener('change', onCommit)
+    row.append(this.el('span', '', label), input)
+    return row
   }
 }

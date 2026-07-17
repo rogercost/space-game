@@ -8,6 +8,7 @@ import { Game, Shake } from './game'
 import { Leaderboard } from './leaderboard'
 import { Trail } from './trail'
 import { UI } from './ui'
+import { GameAudio } from './audio'
 
 const SPACE_COLOR = 0x05060a
 
@@ -90,7 +91,13 @@ const SPEED_RAMP = 0.28
 const COUNT_RAMP = 6.3
 const BEST_KEY = 'starship3d.bestTime' // best survival time, in seconds
 const NAME_KEY = 'starship3d.playerName' // last name entered on the death screen
+const MUSIC_VOL_KEY = 'starship3d.musicVolume'
+const SFX_VOL_KEY = 'starship3d.sfxVolume'
 let best = loadBest()
+
+// Soundtrack + synthesized SFX. The AudioContext itself is created lazily on the
+// first user gesture (Launch / a Settings slider) to satisfy autoplay policies.
+const audio = new GameAudio(loadVolume(MUSIC_VOL_KEY), loadVolume(SFX_VOL_KEY))
 
 // Density and speed rise with distance travelled (∝ √distance), like the original's curve.
 function updateDifficulty(distance: number): void {
@@ -113,6 +120,11 @@ const LAUNCH_DURATION = 1.1 // seconds
 const LAUNCH_START_Y = -9 // ship start height, below the camera's view
 let launchT = 0
 
+// Engine spool: a hit stalls the engine to zero and it re-spools with the same
+// ease as the launch ramp — a secondary audio cue for impacts.
+const ENGINE_RESPOOL_TIME = 1.4 // seconds back to full throttle after a hit
+let engineSpool = 1
+
 const ui = new UI({
   onLaunch: beginLaunch,
   onContinue: resume,
@@ -125,11 +137,22 @@ const ui = new UI({
     return leaderboard.add(name, deathTime)
   },
   getLeaderboard: () => leaderboard.entries,
+  onMusicVolume: (v) => {
+    audio.setMusicVolume(v)
+    saveVolume(MUSIC_VOL_KEY, v)
+  },
+  onSfxVolume: (v) => {
+    audio.setSfxVolume(v)
+    saveVolume(SFX_VOL_KEY, v)
+  },
+  onSfxPreview: () => audio.previewImpact(),
+  getMusicVolume: () => audio.musicVolume,
+  getSfxVolume: () => audio.sfxVolume,
 })
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard, audio })
 
 ui.setBest(best)
 goMenu()
@@ -240,6 +263,8 @@ function animate(): void {
     field.update(dt, ship.position, flight.forward)
     updateStarfield(starfield, ship.position)
     updateTrailFromShip(dt)
+    // Engine spools up with the intro, meeting the level 'playing' starts at.
+    audio.setEngine((e * flight.cfg.speed) / MAX_SPEED)
     if (t >= 1) {
       camBase.copy(CAM_OFFSET) // hand over to the chase cam, already at the flying pose
       smoothLook.set(0, 0, -12)
@@ -258,6 +283,12 @@ function animate(): void {
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
     updateTrailFromShip(dt)
+    // Thrust never stops in flight, so the engine tracks the cruise speed — it
+    // creeps up with the difficulty ramp rather than wobbling with drift. The
+    // spool factor dives to zero on a hit and eases back like the launch ramp.
+    if (engineSpool < 1) engineSpool = Math.min(1, engineSpool + dt / ENGINE_RESPOOL_TIME)
+    const spool = 1 - Math.pow(1 - engineSpool, 3) // same ease-out as the launch intro
+    audio.setEngine(spool * (flight.cfg.speed / MAX_SPEED))
 
     // Flash the ship white (never invisible) while invulnerable.
     setShipFlash(game.invulnerable && Math.floor(clock.elapsedTime * 20) % 2 === 0)
@@ -284,6 +315,8 @@ function animate(): void {
     updateCamera(dt)
     updateStarfield(starfield, ship.position)
     updateTrailFromShip(dt)
+    // Engines are dead: the whoosh winds down to zero with the coasting speed.
+    audio.setEngine(flight.velocity.length() / MAX_SPEED)
   } else if (screen === 'menu') {
     // Attract-mode backdrop: the field drifts behind the menu (ship hidden).
     field.update(dt, ship.position, flight.forward)
@@ -303,6 +336,8 @@ function handleCollision(): void {
   if (!hit) return
   flight.applyKnockback(hit.normal, hit.penetration)
   shake.add(0.85)
+  audio.impact()
+  engineSpool = 0 // stall the engine; it re-spools over the next frames
   if (game.hit()) goDeath()
 }
 
@@ -310,6 +345,7 @@ function goMenu(): void {
   screen = 'menu'
   ship.visible = false // no ship behind the menu
   trail.mesh.visible = false
+  audio.menu()
   ui.showMenu()
 }
 
@@ -328,6 +364,8 @@ function beginLaunch(): void {
   trail.reset(_emit, _aft, flight.velocity)
   trail.mesh.visible = true
   launchT = 0
+  engineSpool = 1 // the launch branch does its own ramp; start play at full spool
+  audio.begin() // restart the soundtrack; the engine ramps with the intro
   screen = 'launching'
   ui.showPlaying()
   ui.setHealth(game.health, game.maxHealth)
@@ -337,12 +375,14 @@ function beginLaunch(): void {
 function pause(): void {
   if (screen !== 'playing') return
   screen = 'paused'
+  audio.pause()
   ui.showPaused()
 }
 
 function resume(): void {
   if (screen !== 'paused') return
   screen = 'playing'
+  audio.resume()
   ui.showPlaying()
 }
 
@@ -356,6 +396,7 @@ function goDeath(): void {
   ship.visible = true
   setShipFlash(false) // no invuln flash on the death scene
   screen = 'dead'
+  audio.death() // music fades; the engine whoosh follows the coast in animate()
   ui.showDeath(deathTime, best, loadPlayerName())
 }
 
@@ -387,6 +428,26 @@ function loadPlayerName(): string {
 function savePlayerName(name: string): void {
   try {
     localStorage.setItem(NAME_KEY, name)
+  } catch {
+    // storage unavailable — ignore
+  }
+}
+
+/** Saved volume (0..1), or undefined so the GameAudio defaults apply. */
+function loadVolume(key: string): number | undefined {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return undefined
+    const v = Number(raw)
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function saveVolume(key: string, value: number): void {
+  try {
+    localStorage.setItem(key, String(value))
   } catch {
     // storage unavailable — ignore
   }
