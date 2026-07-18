@@ -148,6 +148,44 @@ const STYLE = `
   cursor: pointer; pointer-events: auto; z-index: 16;
 }
 .s3d-pausebtn:hover { background: rgba(40, 60, 100, 0.6); border-color: rgba(150, 190, 240, 0.6); }
+
+/* Phones and tablets have far fewer CSS pixels than their physical resolution
+   suggests. Keep controls touch-friendly, but compact the UI in either orientation. */
+@media (hover: none) and (pointer: coarse) and (max-width: 1024px) {
+  .s3d-panel {
+    box-sizing: border-box; width: min(320px, calc(100vw - 32px));
+    min-width: 0; max-width: none; max-height: calc(100vh - 24px);
+    max-height: calc(100dvh - 24px); gap: 10px; padding: 18px 20px;
+    border-radius: 12px; overflow-y: auto;
+  }
+  .s3d-title { margin-bottom: 2px; font-size: 30px; }
+  .s3d-subtitle { margin: -4px 0 4px; font-size: 12px; }
+  .s3d-btn {
+    min-height: 44px; padding: 10px 14px; border-radius: 8px;
+    font-size: 16px;
+  }
+  .s3d-row { gap: 8px; }
+  .s3d-input { padding: 10px 12px; font-size: 16px; }
+  .s3d-bigtime { font-size: 28px; }
+  .s3d-small { font-size: 12px; }
+  .s3d-status { min-height: 16px; font-size: 12px; }
+  .s3d-list { width: 100%; min-width: 0; font-size: 14px; line-height: 1.45; }
+  .s3d-list-row { gap: 12px; padding: 2px 4px; }
+  .s3d-help { font-size: 12px; line-height: 1.5; }
+  .s3d-slider { gap: 8px; }
+  .s3d-slider span { width: 48px; font-size: 12px; }
+
+  .s3d-health { left: 16px; top: 10px; gap: 24px; }
+  .s3d-heart {
+    font-size: 32px; -webkit-text-stroke-width: 2px;
+    text-shadow: 0 1px 4px rgba(0, 0, 0, 0.55);
+  }
+  .s3d-score-wrap { right: 12px; top: 8px; }
+  .s3d-score { font-size: 24px; }
+  .s3d-best { font-size: 13px; }
+  .s3d-stats { left: 12px; top: 60px; font-size: 11px; }
+  .s3d-pausebtn { top: 8px; width: 40px; height: 40px; font-size: 18px; }
+}
 `
 
 /**
