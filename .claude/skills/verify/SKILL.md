@@ -1,9 +1,9 @@
 ---
 name: verify
-description: Build, launch, and drive Starship 3D headlessly to verify changes at the real surface (browser + CDP)
+description: Build, launch, and drive Starvoid headlessly to verify changes at the real surface (browser + CDP)
 ---
 
-# Verifying Starship 3D changes
+# Verifying Starvoid changes
 
 ## Build / launch
 

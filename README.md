@@ -1,4 +1,4 @@
-# Starship 3D
+# Starvoid
 
 An endless 3D asteroid-dodging game built with [three.js](https://threejs.org/) and
 TypeScript — a full-3D reimagining of the Scratch game
