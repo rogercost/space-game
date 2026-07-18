@@ -14,14 +14,19 @@ export interface SteeringInput {
   toggleTilt(): Promise<boolean>
 }
 
-type OrientationPermission = 'granted' | 'denied'
-type OrientationConstructor = typeof DeviceOrientationEvent & {
-  requestPermission?: () => Promise<OrientationPermission>
+type MotionPermission = 'granted' | 'denied'
+type MotionConstructor = typeof DeviceMotionEvent & {
+  requestPermission?: () => Promise<MotionPermission>
 }
 
-/** Degrees from calibrated center needed for full steering deflection. */
-const TILT_RANGE = 25
-const TILT_DEADZONE = 2
+const DEG_TO_RAD = Math.PI / 180
+/** Radians from calibrated center needed for full steering deflection. */
+const TILT_RANGE = 25 * DEG_TO_RAD
+const TILT_DEADZONE = 2 * DEG_TO_RAD
+/** Low-pass response for removing hand jitter and brief movement acceleration. */
+const MOTION_FILTER_RESPONSE = 12
+/** Let the gravity estimate settle after the user taps the Tilt button. */
+const CALIBRATION_SAMPLES = 8
 
 export function createSteeringInput(): SteeringInput {
   return new BrowserSteeringInput()
@@ -30,17 +35,22 @@ export function createSteeringInput(): SteeringInput {
 class BrowserSteeringInput implements SteeringInput {
   private readonly pointer: Pointer = { x: 0, y: 0 }
   private readonly tilt: Pointer = { x: 0, y: 0 }
-  private readonly currentTilt: Pointer = { x: 0, y: 0 }
   private activeTouchId: number | null = null
   private _tiltActive = false
   private tiltPending = false
-  private centerX: number | null = null
-  private centerY: number | null = null
+  private gravityX = 0
+  private gravityY = 0
+  private gravityZ = 0
+  private gravityReady = false
+  private lastMotionTime: number | null = null
+  private centerRoll = 0
+  private centerPitch = 0
   private centerAngle = 0
+  private calibrationSamples = 0
 
   readonly tiltSupported =
     window.isSecureContext &&
-    typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceMotionEvent !== 'undefined' &&
     window.matchMedia('(hover: none) and (pointer: coarse)').matches
 
   constructor() {
@@ -78,15 +88,15 @@ class BrowserSteeringInput implements SteeringInput {
 
     this.tiltPending = true
     try {
-      const Orientation = DeviceOrientationEvent as OrientationConstructor
-      if (typeof Orientation.requestPermission === 'function') {
-        const permission = await Orientation.requestPermission()
+      const Motion = DeviceMotionEvent as MotionConstructor
+      if (typeof Motion.requestPermission === 'function') {
+        const permission = await Motion.requestPermission()
         if (permission !== 'granted') return false
       }
 
       this.resetTiltCenter()
       this._tiltActive = true
-      window.addEventListener('deviceorientation', this.updateTilt)
+      window.addEventListener('devicemotion', this.updateTilt)
       return true
     } catch (error) {
       console.warn('tilt steering unavailable:', error)
@@ -108,35 +118,95 @@ class BrowserSteeringInput implements SteeringInput {
     this.pointer.y = 0
   }
 
-  private readonly updateTilt = (e: DeviceOrientationEvent): void => {
-    if (e.beta === null || e.gamma === null) return
+  private readonly updateTilt = (e: DeviceMotionEvent): void => {
+    const acceleration = e.accelerationIncludingGravity
+    if (
+      !acceleration ||
+      acceleration.x === null ||
+      acceleration.y === null ||
+      acceleration.z === null
+    ) {
+      return
+    }
 
     const angle = screenAngle()
-    orientTilt(this.currentTilt, e.beta, e.gamma, angle)
-    if (this.centerX === null || this.centerY === null || angle !== this.centerAngle) {
-      this.centerX = this.currentTilt.x
-      this.centerY = this.currentTilt.y
+    if (angle !== this.centerAngle) {
+      this.gravityReady = false
+      this.lastMotionTime = null
       this.centerAngle = angle
+      this.calibrationSamples = 0
+      this.tilt.x = 0
+      this.tilt.y = 0
+    }
+    this.filterGravity(acceleration.x, acceleration.y, acceleration.z, e.timeStamp)
+
+    let screenX = this.gravityX
+    let screenY = this.gravityY
+    if (angle === 90) {
+      screenX = this.gravityY
+      screenY = -this.gravityX
+    } else if (angle === 180) {
+      screenX = -this.gravityX
+      screenY = -this.gravityY
+    } else if (angle === 270) {
+      screenX = -this.gravityY
+      screenY = this.gravityX
+    }
+
+    if (Math.hypot(screenX, screenY, this.gravityZ) < 1) return
+
+    // Roll uses gravity across the screen. Pitch uses the signed angle between
+    // screen-up and screen-normal, which remains continuous while held upright.
+    const roll = Math.atan2(screenX, Math.hypot(screenY, this.gravityZ))
+    const pitch = Math.atan2(this.gravityZ, -screenY)
+
+    if (this.calibrationSamples < CALIBRATION_SAMPLES) {
+      this.centerRoll = roll
+      this.centerPitch = pitch
+      this.calibrationSamples += 1
       this.tilt.x = 0
       this.tilt.y = 0
       return
     }
 
-    this.tilt.x = normalizeTilt(this.currentTilt.x - this.centerX)
-    this.tilt.y = -normalizeTilt(this.currentTilt.y - this.centerY)
+    this.tilt.x = normalizeTilt(shortestAngle(roll - this.centerRoll))
+    this.tilt.y = normalizeTilt(shortestAngle(pitch - this.centerPitch))
   }
 
   private disableTilt(): void {
     this._tiltActive = false
-    window.removeEventListener('deviceorientation', this.updateTilt)
+    window.removeEventListener('devicemotion', this.updateTilt)
     this.resetTiltCenter()
   }
 
   private resetTiltCenter(): void {
-    this.centerX = null
-    this.centerY = null
+    this.gravityReady = false
+    this.lastMotionTime = null
+    this.centerRoll = 0
+    this.centerPitch = 0
+    this.centerAngle = screenAngle()
+    this.calibrationSamples = 0
     this.tilt.x = 0
     this.tilt.y = 0
+  }
+
+  private filterGravity(x: number, y: number, z: number, time: number): void {
+    if (!this.gravityReady) {
+      this.gravityX = x
+      this.gravityY = y
+      this.gravityZ = z
+      this.gravityReady = true
+      this.lastMotionTime = time
+      return
+    }
+
+    const elapsed = this.lastMotionTime === null ? 1 / 60 : (time - this.lastMotionTime) / 1000
+    const dt = Math.min(0.1, Math.max(1 / 240, elapsed))
+    const amount = 1 - Math.exp(-MOTION_FILTER_RESPONSE * dt)
+    this.gravityX += (x - this.gravityX) * amount
+    this.gravityY += (y - this.gravityY) * amount
+    this.gravityZ += (z - this.gravityZ) * amount
+    this.lastMotionTime = time
   }
 }
 
@@ -145,26 +215,13 @@ function screenAngle(): number {
   return ((Math.round(angle / 90) * 90) % 360 + 360) % 360
 }
 
-/** Rotate device-fixed beta/gamma into the current screen orientation. */
-function orientTilt(out: Pointer, beta: number, gamma: number, angle: number): void {
-  if (angle === 90) {
-    out.x = beta
-    out.y = -gamma
-  } else if (angle === 180) {
-    out.x = -gamma
-    out.y = -beta
-  } else if (angle === 270) {
-    out.x = -beta
-    out.y = gamma
-  } else {
-    out.x = gamma
-    out.y = beta
-  }
+function shortestAngle(radians: number): number {
+  return Math.atan2(Math.sin(radians), Math.cos(radians))
 }
 
-function normalizeTilt(degrees: number): number {
-  const magnitude = Math.abs(degrees)
+function normalizeTilt(radians: number): number {
+  const magnitude = Math.abs(radians)
   if (magnitude <= TILT_DEADZONE) return 0
   const scaled = (magnitude - TILT_DEADZONE) / (TILT_RANGE - TILT_DEADZONE)
-  return Math.sign(degrees) * Math.min(1, scaled)
+  return Math.sign(radians) * Math.min(1, scaled)
 }
