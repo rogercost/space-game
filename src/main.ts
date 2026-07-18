@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { createStarfield, updateStarfield } from './starfield'
 import { createShip } from './ship'
-import { createPointer } from './input'
+import { createSteeringInput } from './input'
 import { Flight, DEFAULT_FLIGHT } from './flight'
 import { AsteroidField, DEFAULT_FIELD } from './asteroids'
 import { Game, Shake } from './game'
@@ -49,7 +49,11 @@ const shipModel = createShip()
 const ship = shipModel.object
 scene.add(ship)
 
-const pointer = createPointer()
+const steering = createSteeringInput()
+const fullscreenSupported =
+  document.fullscreenEnabled &&
+  typeof document.documentElement.requestFullscreen === 'function' &&
+  typeof document.exitFullscreen === 'function'
 const flight = new Flight(ship)
 
 const field = new AsteroidField()
@@ -126,11 +130,15 @@ const ENGINE_RESPOOL_TIME = 1.4 // seconds back to full throttle after a hit
 let engineSpool = 1
 
 const ui = new UI({
+  tiltSupported: steering.tiltSupported,
+  fullscreenSupported,
   onLaunch: beginLaunch,
   onContinue: resume,
   onRestart: beginLaunch,
   onMainMenu: goMenu,
   onPause: pause,
+  onToggleTilt: () => void toggleTilt(),
+  onToggleFullscreen: () => void toggleFullscreen(),
   onPlayAgain: beginLaunch,
   onSubmitName: (name) => {
     savePlayerName(name)
@@ -152,17 +160,23 @@ const ui = new UI({
 
 // Expose for live tuning in the DevTools console, e.g. `flight.cfg.driftResponse = 1.5`,
 // `field.setCount(200)`, or `scene.fog.density = 0.0008`.
-Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard, audio })
+Object.assign(window, { flight, field, scene, game, shake, starfield, ambient, keyLight, rimLight, ui, leaderboard, audio, steering })
 
 ui.setBest(best)
+if (fullscreenSupported) {
+  document.addEventListener('fullscreenchange', () => {
+    ui.setFullscreenActive(document.fullscreenElement !== null)
+  })
+}
 goMenu()
 
-// Space: pause/resume. C: collider debug. M: stats panel.
+// Space: pause/resume. T: tilt steering. F: fullscreen. C: colliders. M: stats.
 // (Restart lives on the pause/death menus now — there's no restart key.)
 window.addEventListener('keydown', (e) => {
   const t = e.target as HTMLElement | null
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return // don't hijack name entry
   const k = e.key.toLowerCase()
+  const plainKey = !e.altKey && !e.ctrlKey && !e.metaKey
   if (e.code === 'Space') {
     e.preventDefault()
     if (screen === 'playing') pause()
@@ -173,8 +187,29 @@ window.addEventListener('keydown', (e) => {
     console.log('collider debug:', on ? 'on' : 'off')
   } else if (k === 'm') {
     console.log('stats:', ui.toggleStats() ? 'on' : 'off')
+  } else if (k === 't' && plainKey && steering.tiltSupported && !e.repeat) {
+    void toggleTilt()
+  } else if (k === 'f' && plainKey && fullscreenSupported && !e.repeat) {
+    void toggleFullscreen()
   }
 })
+
+async function toggleTilt(): Promise<void> {
+  const active = await steering.toggleTilt()
+  ui.setTiltActive(active)
+}
+
+async function toggleFullscreen(): Promise<void> {
+  if (!fullscreenSupported) return
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen()
+    else await document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+  } catch (error) {
+    console.warn('fullscreen unavailable:', error)
+  } finally {
+    ui.setFullscreenActive(document.fullscreenElement !== null)
+  }
+}
 
 // --- Chase camera ---------------------------------------------------------
 const CAM_OFFSET = new THREE.Vector3(0, 1.6, 7) // local: behind (+Z) and above
@@ -270,7 +305,7 @@ function animate(): void {
   } else if (screen === 'playing') {
     game.update(dt)
     shake.update(dt)
-    flight.update(dt, pointer.value.x, pointer.value.y)
+    flight.update(dt, steering.value.x, steering.value.y)
     if (!game.invulnerable) handleCollision() // may transition us to 'dead'
     if (screen === 'playing') {
       game.addProgress(dt, flight.velocity.length())

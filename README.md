@@ -35,6 +35,8 @@ in-memory seed data — persistence is exercised via `npm run dev:worker` or in 
 | **Mouse** | Steer — offset from screen center sets pitch/yaw. Dead-center = fly straight. |
 | **Touchscreen** | Steer while dragging. Lift your finger to fly straight. |
 | **Space** or **⏸** | Pause / resume. The on-screen ⏸ button (top center) lets you pause with only a mouse or a touchscreen. |
+| **T** or **↔** | Toggle calibrated tilt steering when device-orientation sensors are supported. |
+| **F** or **⛶** | Toggle browser fullscreen when the Fullscreen API is supported. |
 | **C** | Toggle debug collider spheres (green = asteroids, cyan = ship). |
 | **M** | Toggle the debug stats panel (time, speed, density, collisions, fps). |
 
@@ -57,7 +59,7 @@ one concern, wired together in `main.ts`.
 | --- | --- |
 | `src/main.ts` | Orchestrator: renderer, scene, camera, lights, the game loop, the app state machine (`menu`/`launching`/`playing`/`paused`/`dead`), input wiring, collision handling, the difficulty ramp, and run flow (launch/pause/restart/death). |
 | `src/flight.ts` | `Flight` — the pointer-steered forward-flight physics (turn rates with inertia, drift, banking). Owns the ship's transform. |
-| `src/input.ts` | `createPointer()` — normalizes mouse/touch position to `[-1, 1]` from screen center and recenters touch input on release. |
+| `src/input.ts` | `createSteeringInput()` — combines normalized mouse/touch steering with optional, calibrated device-orientation tilt input. Touch temporarily overrides tilt while held. |
 | `src/ship.ts` | `createShip()` — builds the low-poly fighter jet from primitives (pointed nose, tapered fuselage, delta wings, tail fin, canopy, gray engine cowling, and recessed orange interior). Returns an explicit nozzle anchor for the exhaust plus the materials flashed white on hit. |
 | `src/trail.ts` | `Trail` — the ship's exhaust: emitted ballistic samples joined into a tapered, camera-facing ribbon. It leaves along the engine's aft axis even while the ship drifts, curves as the heading changes, and fades by age and camera distance. Additive blending keeps it bright without post-processing bloom. |
 | `src/asteroids.ts` | Procedural asteroid generation **and** the `AsteroidField` (pool, spawn/recycle, density, ship↔rock collision, rock↔rock rigid-body physics, debug spheres). |
@@ -116,8 +118,8 @@ read it for the *why* behind the geometry code.
 - **Naming:** `camelCase` for functions/variables, `PascalCase` for classes and types,
   `UPPER_SNAKE_CASE` for module-level tuning constants, and a leading underscore
   (`_tmp`, `_rel`) for reused scratch objects and private class fields.
-- **Factories vs. classes:** stateless builders are `createX()` factory functions
-  (`createShip`, `createStarfield`, `createPointer`); stateful systems are classes
+- **Factories vs. classes:** builders are exposed as `createX()` factory functions
+  (`createShip`, `createStarfield`, `createSteeringInput`); stateful systems are classes
   (`Flight`, `AsteroidField`, `Game`, `Shake`).
 - **No per-frame allocations in hot paths.** Reuse module- or instance-level scratch
   `Vector3`/`Quaternion` objects inside loops; only allocate at setup or on rare events.
@@ -134,7 +136,8 @@ read it for the *why* behind the geometry code.
 
 ## Current features
 
-- Mouse- or touch-steered inertial flight with banking and a smoothed trailing chase camera.
+- Mouse-, touch-, or optional phone-tilt-steered inertial flight with banking and a
+  smoothed trailing chase camera, plus an in-game fullscreen toggle where supported.
 - A low-poly **fighter jet** (delta wings, gray engine cowling, recessed orange interior)
   trailing a tapered, glowing exhaust plume that emits aft and curves through turns — with a
   short **launch intro** that raises the ship from below the viewport into flying position

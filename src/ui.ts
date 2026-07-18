@@ -15,11 +15,15 @@ export interface StatsFields {
 
 /** Callbacks the UI fires when the player interacts with a menu/button. */
 export interface UIHandlers {
+  tiltSupported: boolean
+  fullscreenSupported: boolean
   onLaunch(): void
   onContinue(): void
   onRestart(): void
   onMainMenu(): void
   onPause(): void
+  onToggleTilt(): void
+  onToggleFullscreen(): void
   onPlayAgain(): void
   /** Record a name for the just-ended run; returns its 0-based leaderboard rank (-1 = off the board). */
   onSubmitName(name: string): number
@@ -140,14 +144,20 @@ const STYLE = `
   font: 13px/1.5 ui-monospace, Menlo, monospace; color: rgba(223, 232, 255, 0.85);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7); pointer-events: none; z-index: 15;
 }
-.s3d-pausebtn {
+.s3d-controls {
   position: fixed; left: 50%; top: 14px; transform: translateX(-50%);
-  width: 44px; height: 44px; display: none; align-items: center; justify-content: center;
+  display: none; grid-template-columns: repeat(3, 44px); gap: 8px; z-index: 16;
+}
+.s3d-controlbtn {
+  width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
   font-size: 20px; color: #dfe8ff; background: rgba(12, 14, 22, 0.5);
   border: 1px solid rgba(120, 150, 200, 0.35); border-radius: 10px;
-  cursor: pointer; pointer-events: auto; z-index: 16;
+  cursor: pointer; pointer-events: auto;
 }
-.s3d-pausebtn:hover { background: rgba(40, 60, 100, 0.6); border-color: rgba(150, 190, 240, 0.6); }
+.s3d-controlbtn:hover { background: rgba(40, 60, 100, 0.6); border-color: rgba(150, 190, 240, 0.6); }
+.s3d-controlbtn.is-active {
+  color: #fff; background: rgba(70, 150, 220, 0.65); border-color: rgba(170, 215, 255, 0.9);
+}
 
 /* Phones and tablets have far fewer CSS pixels than their physical resolution
    suggests. Keep controls touch-friendly, but compact the UI in either orientation. */
@@ -184,7 +194,11 @@ const STYLE = `
   .s3d-score { font-size: 24px; }
   .s3d-best { font-size: 13px; }
   .s3d-stats { left: 12px; top: 60px; font-size: 11px; }
-  .s3d-pausebtn { top: 8px; width: 40px; height: 40px; font-size: 18px; }
+  .s3d-controls { top: 8px; grid-template-columns: repeat(3, 40px); gap: 6px; }
+  .s3d-controlbtn { width: 40px; height: 40px; font-size: 18px; }
+}
+@media (hover: none) and (pointer: coarse) and (max-width: 600px) and (orientation: portrait) {
+  .s3d-controls { top: 58px; }
 }
 `
 
@@ -207,7 +221,10 @@ export class UI {
   private readonly scoreEl: HTMLDivElement
   private readonly bestEl: HTMLDivElement
   private readonly statsEl: HTMLDivElement
+  private readonly controlsEl: HTMLDivElement
   private readonly pauseBtn: HTMLButtonElement
+  private readonly tiltBtn: HTMLButtonElement | null
+  private readonly fullscreenBtn: HTMLButtonElement | null
 
   // Overlays
   private readonly menuEl: HTMLDivElement
@@ -252,12 +269,24 @@ export class UI {
 
     this.statsEl = this.el('div', 's3d-stats')
 
-    this.pauseBtn = this.el('button', 's3d-pausebtn', '⏸') // ⏸
-    this.pauseBtn.type = 'button'
-    this.pauseBtn.title = 'Pause (Space)'
-    this.pauseBtn.addEventListener('click', () => this.handlers.onPause())
+    this.controlsEl = this.el('div', 's3d-controls')
+    this.tiltBtn = handlers.tiltSupported
+      ? this.controlButton('↔', 'Enable tilt steering (T)', () => this.handlers.onToggleTilt(), true)
+      : null
+    if (this.tiltBtn) this.tiltBtn.style.gridColumn = '1'
+    this.pauseBtn = this.controlButton('⏸', 'Pause (Space)', () => this.handlers.onPause())
+    this.pauseBtn.style.gridColumn = '2'
+    this.fullscreenBtn = handlers.fullscreenSupported
+      ? this.controlButton('⛶', 'Enter fullscreen (F)', () => this.handlers.onToggleFullscreen(), true)
+      : null
+    if (this.fullscreenBtn) this.fullscreenBtn.style.gridColumn = '3'
+    this.controlsEl.append(
+      ...(this.tiltBtn ? [this.tiltBtn] : []),
+      this.pauseBtn,
+      ...(this.fullscreenBtn ? [this.fullscreenBtn] : []),
+    )
 
-    document.body.append(this.reticleEl, this.healthEl, this.scoreWrap, this.statsEl, this.pauseBtn)
+    document.body.append(this.reticleEl, this.healthEl, this.scoreWrap, this.statsEl, this.controlsEl)
 
     // --- Main menu ---------------------------------------------------------
     this.menuRoot = this.el('div', 's3d-panel')
@@ -275,13 +304,16 @@ export class UI {
 
     this.settingsView = this.el('div', 's3d-panel')
     const settingsHelp = this.el('div', 's3d-help')
-    settingsHelp.innerHTML =
-      '<b>Controls</b><br>' +
-      'Mouse&nbsp;&nbsp;steer<br>' +
-      'Touch&nbsp;&nbsp;drag to steer<br>' +
-      'Space&nbsp;&nbsp;pause / resume<br>' +
-      'C&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collider debug<br>' +
-      'M&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats panel'
+    const helpLines = [
+      '<b>Controls</b>',
+      'Mouse&nbsp;&nbsp;steer',
+      'Touch&nbsp;&nbsp;drag to steer',
+      'Space&nbsp;&nbsp;pause / resume',
+    ]
+    if (handlers.tiltSupported) helpLines.push('T&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;tilt steering')
+    if (handlers.fullscreenSupported) helpLines.push('F&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;fullscreen')
+    helpLines.push('C&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;collider debug', 'M&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;stats panel')
+    settingsHelp.innerHTML = helpLines.join('<br>')
     this.settingsView.append(
       this.el('div', 's3d-title', 'SETTINGS'),
       this.slider('MUSIC', handlers.getMusicVolume(), (v) => this.handlers.onMusicVolume(v)),
@@ -442,6 +474,18 @@ export class UI {
     return this.statsOn
   }
 
+  setTiltActive(active: boolean): void {
+    if (!this.tiltBtn) return
+    this.setControlActive(this.tiltBtn, active)
+    this.setControlLabel(this.tiltBtn, `${active ? 'Disable' : 'Enable'} tilt steering (T)`)
+  }
+
+  setFullscreenActive(active: boolean): void {
+    if (!this.fullscreenBtn) return
+    this.setControlActive(this.fullscreenBtn, active)
+    this.setControlLabel(this.fullscreenBtn, `${active ? 'Exit' : 'Enter'} fullscreen (F)`)
+  }
+
   // --- internals -----------------------------------------------------------
 
   private submitName(): void {
@@ -491,7 +535,7 @@ export class UI {
     this.healthEl.style.display = healthScore ? 'flex' : 'none'
     this.scoreWrap.style.display = healthScore ? 'block' : 'none'
     this.reticleEl.style.display = reticle ? 'block' : 'none'
-    this.pauseBtn.style.display = pause ? 'flex' : 'none'
+    this.controlsEl.style.display = pause ? 'grid' : 'none'
   }
 
   private applyStatsVisibility(): void {
@@ -514,6 +558,31 @@ export class UI {
     b.type = 'button'
     b.addEventListener('click', onClick)
     return b
+  }
+
+  private controlButton(
+    label: string,
+    title: string,
+    onClick: () => void,
+    toggle = false,
+  ): HTMLButtonElement {
+    const button = this.el('button', 's3d-controlbtn', label)
+    button.type = 'button'
+    button.title = title
+    button.setAttribute('aria-label', title)
+    if (toggle) button.setAttribute('aria-pressed', 'false')
+    button.addEventListener('click', onClick)
+    return button
+  }
+
+  private setControlActive(button: HTMLButtonElement, active: boolean): void {
+    button.classList.toggle('is-active', active)
+    button.setAttribute('aria-pressed', String(active))
+  }
+
+  private setControlLabel(button: HTMLButtonElement, label: string): void {
+    button.title = label
+    button.setAttribute('aria-label', label)
   }
 
   /** A labelled volume slider: onInput fires live (0..1), onCommit on release. */
