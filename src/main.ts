@@ -97,20 +97,6 @@ const BEST_KEY = 'starvoid.bestTime' // best survival time, in seconds
 const NAME_KEY = 'starvoid.playerName' // last name entered on the death screen
 const MUSIC_VOL_KEY = 'starvoid.musicVolume'
 const SFX_VOL_KEY = 'starvoid.sfxVolume'
-
-// One-time migration of saved data from the pre-rename 'starship3d.*' keys.
-try {
-  for (const key of [BEST_KEY, NAME_KEY, MUSIC_VOL_KEY, SFX_VOL_KEY]) {
-    const old = 'starship3d' + key.slice('starvoid'.length)
-    const value = localStorage.getItem(old)
-    if (value !== null) {
-      if (localStorage.getItem(key) === null) localStorage.setItem(key, value)
-      localStorage.removeItem(old)
-    }
-  }
-} catch {
-  // storage unavailable — ignore
-}
 let best = loadBest()
 
 // Soundtrack + synthesized SFX. The AudioContext itself is created lazily on the
