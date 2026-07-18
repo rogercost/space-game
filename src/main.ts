@@ -338,6 +338,7 @@ function animate(): void {
       active: field.activeCount,
       distance: game.distance,
       fps,
+      tilt: steering.tiltDebug,
     })
   } else if (screen === 'dead') {
     // Keep the death scene alive: the ship coasts and the field drifts behind the overlay.

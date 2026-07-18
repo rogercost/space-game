@@ -11,6 +11,8 @@ export interface StatsFields {
   active: number
   distance: number
   fps: number
+  /** Tilt-steering sensor/calibration state (experimental — see tilt.ts). */
+  tilt: string
 }
 
 /** Callbacks the UI fires when the player interacts with a menu/button. */
@@ -464,7 +466,8 @@ export class UI {
       `density  ${s.count}<br>` +
       `collide  ${s.active}<br>` +
       `distance ${Math.floor(s.distance)}<br>` +
-      `fps      ${s.fps.toFixed(0)}`
+      `fps      ${s.fps.toFixed(0)}<br>` +
+      `tilt     ${s.tilt}`
   }
 
   /** Toggle the debug stats panel; returns whether it's now on. */

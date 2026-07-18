@@ -50,6 +50,36 @@ Key points:
   Count impact SFX by wrapping: `const o = audio.impact.bind(audio);
   audio.impact = () => { window.__impacts++; o() }`.
 
+## Tilt steering (virtual sensors)
+
+`tilt.ts` can be driven headlessly with CDP virtual sensors — run
+`scripts/tilt-verify.mjs` (dev server + headless Chrome up first); its design
+math has an offline check in `scripts/tilt-math-check.mjs` (pure simulation,
+needs nothing running). The traps, in order hit:
+
+- The support gate needs `(hover: none) and (pointer: coarse)`: patch
+  `window.matchMedia` via `Page.addScriptToEvaluateOnNewDocument` before load.
+- `Browser.grantPermissions {permissions: ['sensors']}` first, or every
+  sensor `start()` fails with `NotReadableError: Could not connect to a sensor`.
+- `Emulation.setSensorOverrideEnabled {type: 'gravity' | 'relative-orientation'}`
+  **before** the page constructs sensors, then `setSensorOverrideReadings`
+  (`{xyz:{x,y,z}}` / `{quaternion:{x,y,z,w}}`). Overrides are **CDP-session-
+  scoped**: they vanish when your WebSocket closes (live sensors then error and
+  tilt falls back), so one connection must own the whole run.
+- Virtual sensors emit `reading` only when the reading *changes*. A held pose
+  delivers one event and the stability-gated calibration never advances — keep
+  re-sending the pose with sub-deadzone jitter (~±0.002 m/s²) every ~40 ms.
+- Model poses as device→world quaternions with world Z up; the gravity reading
+  is the "up" vector in device coords, `q⁻¹·(0,0,9.8)` (flat face-up ⇒ z=+9.8).
+  Upright portrait facing the user is `Rx(90°)`; a 40°-reclined grip `Rx(50°)`.
+- Fallback tiers are testable: disable the `relative-orientation` override →
+  gravity-tangent pitch; disable `gravity` too → the page's GravitySensor
+  errors into the devicemotion path, which accepts *synthetic*
+  `new DeviceMotionEvent('devicemotion', {accelerationIncludingGravity})`
+  dispatched on an interval (the handler only reads data fields).
+- `steering.tiltDebug` (also the `tilt` line on the M stats panel) exposes
+  source + calibration state + unit gravity + outputs for assertions.
+
 ## Gotchas
 
 - Headless Chrome renders via SwiftShader (software GL). Heavy scenes (many
